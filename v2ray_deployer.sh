@@ -63,8 +63,8 @@ v2ray_install(){
 	v2ray_uninstall
 	v2ray_update
 	config_ID
-	tls_acme_install
 	config_node
+	tls_acme_install
 	# 生成v2board配置
 	echo -e '{
 	"poseidon": {
