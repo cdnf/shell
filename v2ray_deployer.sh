@@ -52,6 +52,10 @@ config_node(){
 	read -p "$(echo -e "$yellow最大在线IP数$none(默认：${cyan}2$none)")：" maxOnlineIPCount
 		[ -z "$maxOnlineIPCount" ] && maxOnlineIPCount="2"
 }
+config_v2ray_version(){
+	read -p "$(echo -e "$yellow指定版本$none（如 1.8.0 ，默认：${cyan}latest$none）")：" v2ray_version
+		[ -z "$v2ray_version" ] && v2ray_version=""
+}
 
 v2ray_restart(){
 	service_Cmd restart v2ray
@@ -101,9 +105,18 @@ v2ray_edit(){
 }
 
 v2ray_update(){
+	config_v2ray_version
 	# 安装v2ray最新版
-	curl -L -s https://raw.githubusercontent.com/ColetteContreras/v2ray-poseidon/master/install-release.sh | bash
+	curl -o v2ray.sh -L -s https://raw.githubusercontent.com/ColetteContreras/v2ray-poseidon/master/install-release.sh
+	if [ $v2ray_version ]; then
+	 	# Install target version of v2ray-poseidon
+		bash v2ray.sh  --version v$v2ray_version
+	else
+	 	# Install latest version of v2ray-poseidon
+		bash v2ray.sh
+	fi
 }
+
 v2ray_uninstall(){
 	service_Cmd stop v2ray
 	service_Cmd disable v2ray
