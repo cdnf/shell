@@ -18,7 +18,7 @@ tls_key="server.key"
 if [[ -f /usr/bin/apt ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /usr/bin/yum ]]; then
 		installcmd="yum"
-		$installcmd -y install epel-release
+		$installcmd install -y epel-release
 	fi
 	if [[ -f /usr/bin/apt ]]; then
 		installcmd="apt"
@@ -26,7 +26,7 @@ if [[ -f /usr/bin/apt ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /bin/systemctl ]]; then
 		systemd=true
 	fi
-
+	$installcmd install -y curl wget crond crontab
 else
 	echo -e " 哈哈……这个 ${red}辣鸡脚本${none} 只支持CentOS7+及Ubuntu14+ ${yellow}(-_-) ${none}" && exit 1
 fi
@@ -68,7 +68,6 @@ v2ray_install(){
 	v2ray_update
 	config_ID
 	config_node
-	tls_acme_install
 	# 生成v2board配置
 	echo -e '{
 	"poseidon": {
@@ -85,9 +84,12 @@ v2ray_install(){
 		"acceptProxyProtocol": false // 是否通过 HAProxy 代理协议，获取用户的真实 IP
 	}
 }' > $v2config
+	# 修改配置
 	sed -i "s|\"nodeId\":.*,|\"nodeId\": $node_ID,|" $v2config
 	sed -i "s|\"webapi\":.*,|\"webapi\": \"$webAPI\",|" $v2config
 	sed -i "s|\"token\":.*,|\"token\": \"$token\",|" $v2config
+	sed -i "s|\"speedLimit\":.*\/\/ 用户|\"speedLimit\": $speedLimit_user	\/\/ 用户|" $v2config
+	sed -i "s|\"maxOnlineIPCount\":.*,|\"maxOnlineIPCount\": $maxOnlineIPCount,|" $v2config
 	cat $v2config
 	v2ray_restart
 }
@@ -98,8 +100,8 @@ v2ray_edit(){
 	sed -i "s|\"nodeId\":.*,|\"nodeId\": $node_ID,|" $v2config
 	sed -i "s|\"webapi\":.*,|\"webapi\": \"$webAPI\",|" $v2config
 	sed -i "s|\"token\":.*,|\"token\": \"$token\",|" $v2config
-	sed -i "s|\"maxOnlineIPCount\":.*,|\"maxOnlineIPCount\": $maxOnlineIPCount,|" $v2config
 	sed -i "s|\"speedLimit\":.*\/\/ 用户|\"speedLimit\": $speedLimit_user	\/\/ 用户|" $v2config
+	sed -i "s|\"maxOnlineIPCount\":.*,|\"maxOnlineIPCount\": $maxOnlineIPCount,|" $v2config
 	cat $v2config
 	v2ray_restart
 }
@@ -115,6 +117,7 @@ v2ray_update(){
 	 	# Install latest version of v2ray-poseidon
 		bash v2ray.sh
 	fi
+	rm -f v2ray.sh
 }
 
 v2ray_uninstall(){
@@ -155,7 +158,7 @@ tls_acme_deploy(){
 	~/.acme.sh/acme.sh --installcert -d $myDomain --fullchainpath $tls_path$tls_crt --keypath $tls_path$tls_key --ecc
 	v2ray_restart
 	# 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
-	sed -i '/^.*acme.*$myDomain*/d'  /var/spool/cron/root
+	sed -i '/^.*acme.*$myDomain.*/d'  /var/spool/cron/root
 	echo "0 0 1 */2 * ~/.acme.sh/acme.sh --installcert -d $myDomain --fullchainpath $tls_path$tls_crt --keypath $tls_path$tls_key --ecc" >> /var/spool/cron/root
 }
 
