@@ -14,6 +14,8 @@ tls_path="/root/.cert/"
 tls_crt="server.crt"
 tls_key="server.key"
 
+tools="curl wget cron crond crontab ntp ntpdate screen unzip "
+
 #Check system
 if [[ -f /usr/bin/apt ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /usr/bin/yum ]]; then
@@ -26,7 +28,7 @@ if [[ -f /usr/bin/apt ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /bin/systemctl ]]; then
 		systemd=true
 	fi
-	$installcmd install -y curl wget crond crontab
+	$installcmd install -y $tools
 else
 	echo -e " 哈哈……这个 ${red}辣鸡脚本${none} 只支持CentOS7+及Ubuntu14+ ${yellow}(-_-) ${none}" && exit 1
 fi
@@ -63,7 +65,21 @@ v2ray_restart(){
 	service_Cmd status v2ray
 }
 
+sys_time(){
+	#设置时区为东八区
+	echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+	#同步时间
+	ntpdate cn.pool.ntp.org
+	#添加系统定时任务自动同步时间并重启定时任务服务
+	sed -i '/^.*ntpdate*/d' /etc/crontab
+	sed -i '$a\0 */1 * * * root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/crontab
+	service_Cmd restart cron crond
+	#把时间写入到BIOS
+	hwclock -w
+}
+
 v2ray_install(){
+	sys_time
 	v2ray_uninstall
 	v2ray_update
 	config_ID

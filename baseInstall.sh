@@ -41,7 +41,7 @@ service_Cmd(){
 #更新系统
 $installcmd -y --exclude=kernel* update
 #安装常用基础软件
-$installcmd -y install vim lrzsz screen git unzip ntp crontabs net-tools telnet gcc gcc-c++ make automake autoconf libtool
+$installcmd -y install vim lrzsz screen git unzip ntp crontab net-tools telnet gcc gcc-c++ make automake autoconf libtool
 #设置时区为东八区
 echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 #同步时间
