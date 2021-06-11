@@ -28,7 +28,7 @@ if [[ -f /usr/bin/apt ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /bin/systemctl ]]; then
 		systemd=true
 	fi
-	$installcmd install -y $tools
+	$installcmd -y --exclude=kernel* update && $installcmd install -y $tools
 else
 	echo -e " 哈哈……这个 ${red}辣鸡脚本${none} 只支持CentOS7+及Ubuntu14+ ${yellow}(-_-) ${none}" && exit 1
 fi
@@ -155,15 +155,18 @@ tls_acme_install(){
 	# 安装acme.sh
 	curl  https://get.acme.sh | sh
 	source ~/.bashrc
-	config_domain
-	# 使用 acme.sh 生成证书
-	~/.acme.sh/acme.sh --issue -d $myDomain --standalone -k ec-256
-	tls_acme_deploy
+	tls_acme_newtls
 }
 tls_acme_update(){
 	config_domain
 	# 证书有效期只有 3 个月，因此需要 90 天至少要更新一次证书，acme.sh 脚本会每 60 天自动更新证书。也可以手动更新。
 	~/.acme.sh/acme.sh --renew -d $myDomain --force --ecc
+	tls_acme_deploy
+}
+tls_acme_newtls(){
+	config_domain
+	# 使用 acme.sh 生成证书
+	~/.acme.sh/acme.sh --issue -d $myDomain --standalone -k ec-256
 	tls_acme_deploy
 }
 tls_acme_deploy(){
@@ -174,7 +177,7 @@ tls_acme_deploy(){
 	~/.acme.sh/acme.sh --installcert -d $myDomain --fullchainpath $tls_path$tls_crt --keypath $tls_path$tls_key --ecc
 	v2ray_restart
 	# 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
-	sed -i '/^.*acme.*$myDomain.*/d'  /var/spool/cron/root
+	sed -i '/^.*acme.*\.cert\/.*/d'  /var/spool/cron/root
 	echo "0 0 1 */2 * ~/.acme.sh/acme.sh --installcert -d $myDomain --fullchainpath $tls_path$tls_crt --keypath $tls_path$tls_key --ecc" >> /var/spool/cron/root
 }
 
@@ -182,8 +185,9 @@ tls_acme_deploy(){
 echo -e "1.安装v2ray"
 echo -e "2.升级v2ray"
 echo -e "3.修改配置"
-echo -e "4.安装acme申请证书"
+echo -e "4.安装acme并申请证书"
 echo -e "5.更新TLS证书"
+echo -e "6.新申请TLS证书"
 read -p "请输入数字进行安装[1-5]:" menu_Num
 case "$menu_Num" in
 	1)
@@ -200,6 +204,9 @@ case "$menu_Num" in
 	;;
 	5)
 	tls_acme_update
+	;;
+	6)
+	tls_acme_newtls
 	;;
 	*)
 	echo "请输入正确数字[1-5]:"
