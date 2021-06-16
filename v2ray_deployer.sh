@@ -41,12 +41,17 @@ service_Cmd(){
 }
 
 config_ID(){
+	echo
 	read -p "$(echo -e "$yellow输入节点ID$none")：" node_ID
 }
 config_domain(){
+	echo
 	read -p "$(echo -e "$yellow输入节点域名$none")：" myDomain
+	read -p "$(echo -e "$yellow输入域名端口$none（默认：${cyan}80$none）")：" myDomain_port
+		[ -z "$myDomain_port" ] && myDomain_port="80"
 }
 config_node(){
+	echo
 	read -p "$(echo -e "$yellow输入webAPI域名（包括协议）$none")：" webAPI
 	read -p "$(echo -e "$yellow输入token（18个以上字符）$none")：" token
 	read -p "$(echo -e "$yellow用户限速$none（字节/秒，默认：${cyan}0=不限速$none）")：" speedLimit_user
@@ -55,6 +60,7 @@ config_node(){
 		[ -z "$maxOnlineIPCount" ] && maxOnlineIPCount="2"
 }
 config_v2ray_version(){
+	echo
 	read -p "$(echo -e "$yellow指定版本$none（如 1.8.0 ，默认：${cyan}latest$none）")：" v2ray_version
 		[ -z "$v2ray_version" ] && v2ray_version=""
 }
@@ -108,6 +114,8 @@ v2ray_install(){
 	sed -i "s|\"maxOnlineIPCount\":.*,|\"maxOnlineIPCount\": $maxOnlineIPCount,|" $v2config
 	cat $v2config
 	v2ray_restart
+	read -s -n1 -p "按任意键继续 ... "
+	menu
 }
 
 v2ray_edit(){
@@ -120,6 +128,8 @@ v2ray_edit(){
 	sed -i "s|\"maxOnlineIPCount\":.*,|\"maxOnlineIPCount\": $maxOnlineIPCount,|" $v2config
 	cat $v2config
 	v2ray_restart
+	read -s -n1 -p "按任意键继续 ... "
+	menu
 }
 
 v2ray_update(){
@@ -155,18 +165,28 @@ tls_acme_install(){
 	# 安装acme.sh
 	curl  https://get.acme.sh | sh
 	source ~/.bashrc
+	tls_acme_register
 	tls_acme_newtls
+}
+tls_acme_register(){
+	# acme.sh is using ZeroSSL as default CA now.
+	# Please update your account with an email address first.
+	# acme.sh --register-account -m my@example.com
+	# See: https://github.com/acmesh-official/acme.sh/wiki/ZeroSSL.com-CA
+	# random email
+	local tls_account=$(((RANDOM << 16)))
+	~/.acme.sh/acme.sh --register-account -m $tls_account@gmail.com --server zerossl
 }
 tls_acme_update(){
 	config_domain
 	# 证书有效期只有 3 个月，因此需要 90 天至少要更新一次证书，acme.sh 脚本会每 60 天自动更新证书。也可以手动更新。
-	~/.acme.sh/acme.sh --renew -d $myDomain --force --ecc
+	~/.acme.sh/acme.sh --renew -d $myDomain --httpport $myDomain_port --force --ecc
 	tls_acme_deploy
 }
 tls_acme_newtls(){
 	config_domain
 	# 使用 acme.sh 生成证书
-	~/.acme.sh/acme.sh --issue -d $myDomain --standalone -k ec-256
+	~/.acme.sh/acme.sh --issue -d $myDomain --httpport $myDomain_port --standalone -k ec-256
 	tls_acme_deploy
 }
 tls_acme_deploy(){
@@ -179,37 +199,52 @@ tls_acme_deploy(){
 	# 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
 	sed -i '/^.*acme.*\.cert\/.*/d'  /var/spool/cron/root
 	echo "0 0 1 */2 * ~/.acme.sh/acme.sh --installcert -d $myDomain --fullchainpath $tls_path$tls_crt --keypath $tls_path$tls_key --ecc" >> /var/spool/cron/root
+	read -s -n1 -p "按任意键继续 ... "
+	menu
 }
 
 # 菜单
-echo -e "1.安装v2ray"
-echo -e "2.升级v2ray"
-echo -e "3.修改配置"
-echo -e "4.安装acme并申请证书"
-echo -e "5.更新TLS证书"
-echo -e "6.新申请TLS证书"
-read -p "请输入数字进行安装[1-5]:" menu_Num
-case "$menu_Num" in
-	1)
-	v2ray_install
-	;;
-	2)
-	v2ray_update
-	;;
-	3)
-	v2ray_edit
-	;;
-	4)
-	tls_acme_install
-	;;
-	5)
-	tls_acme_update
-	;;
-	6)
-	tls_acme_newtls
-	;;
-	*)
-	echo "请输入正确数字[1-5]:"
-	;;
-esac
-
+menu(){
+	clear
+	echo
+	echo -e "\t1.安装v2ray"
+	echo -e "\t2.升级v2ray"
+	echo -e "\t3.修改配置"
+	echo -e "\t4.安装acme并申请证书"
+	echo -e "\t5.更新TLS证书"
+	echo -e "\t6.新申请TLS证书"
+	echo -e "\t0.退出\n"
+	echo -en "请输入数字选项回车: "
+    read -n 1 option
+}
+while [ 1 ]
+do
+	menu
+	case "$option" in
+		0)
+		break
+		;;
+		1)
+		v2ray_install
+		;;
+		2)
+		v2ray_update
+		;;
+		3)
+		v2ray_edit
+		;;
+		4)
+		tls_acme_install
+		;;
+		5)
+		tls_acme_update
+		;;
+		6)
+		tls_acme_newtls
+		;;
+		*)
+		echo "请输入正确数字[1-5]:"
+		;;
+	esac
+done
+clear
