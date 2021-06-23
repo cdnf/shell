@@ -47,8 +47,6 @@ config_ID(){
 config_domain(){
 	echo
 	read -p "$(echo -e "$yellow输入节点域名$none")：" myDomain
-	read -p "$(echo -e "$yellow输入域名端口$none（默认：${cyan}80$none）")：" myDomain_port
-		[ -z "$myDomain_port" ] && myDomain_port="80"
 }
 config_node(){
 	echo
@@ -63,6 +61,11 @@ config_v2ray_version(){
 	echo
 	read -p "$(echo -e "$yellow指定版本$none（如 1.8.0 ，默认：${cyan}latest$none）")：" v2ray_version
 		[ -z "$v2ray_version" ] && v2ray_version=""
+}
+config_getSSL_port(){
+	echo
+	read -p "$(echo -e "$yellow申请SSL端口$none（默认：${cyan}80$none）")：" getSSL_port
+		[ -z "$getSSL_port" ] && getSSL_port="80"
 }
 
 v2ray_restart(){
@@ -179,14 +182,16 @@ tls_acme_register(){
 }
 tls_acme_update(){
 	config_domain
+	config_getSSL_port
 	# 证书有效期只有 3 个月，因此需要 90 天至少要更新一次证书，acme.sh 脚本会每 60 天自动更新证书。也可以手动更新。
-	~/.acme.sh/acme.sh --renew -d $myDomain --httpport $myDomain_port --force --ecc
+	~/.acme.sh/acme.sh --renew -d $myDomain --httpport $getSSL_port --force --ecc
 	tls_acme_deploy
 }
 tls_acme_newtls(){
 	config_domain
+	config_getSSL_port
 	# 使用 acme.sh 生成证书
-	~/.acme.sh/acme.sh --issue -d $myDomain --httpport $myDomain_port --standalone -k ec-256
+	~/.acme.sh/acme.sh --issue -d $myDomain --httpport $getSSL_port --standalone -k ec-256
 	tls_acme_deploy
 }
 tls_acme_deploy(){
