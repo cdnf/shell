@@ -324,9 +324,9 @@ config_modify(){
     sed -i "s|Api_Key|${Api_Key}|" ${config_ymlfile}
     sed -i "s|Node_ID|${Node_ID}|" ${config_ymlfile}
     sed -i "s|Node_Type|${Node_Type}|" ${config_ymlfile}
+    sed -i "s|Cert_Domain|${Cert_Domain}|" ${config_ymlfile}
     if [ "$is_tls" == "1" ]; then
         sed -i "s|Cert_Mode|${Cert_Mode}|" ${config_ymlfile}
-        sed -i "s|Cert_Domain|${Cert_Domain}|" ${config_ymlfile}
         install_acme
     else
         sed -i "s|Cert_Mode|none|" ${config_ymlfile}
