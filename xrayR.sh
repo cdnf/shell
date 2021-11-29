@@ -2,10 +2,6 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
 export PATH
 
-#=================================================
-#	Author: 金将军
-#=================================================
-
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
@@ -19,61 +15,28 @@ config_dnsfile="/etc/XrayR/dns.json"
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
-# check os
-if [[ -f /etc/redhat-release ]]; then
-    release="centos"
-elif cat /etc/issue | grep -Eqi "debian"; then
-    release="debian"
-elif cat /etc/issue | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /etc/issue | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
-elif cat /proc/version | grep -Eqi "debian"; then
-    release="debian"
-elif cat /proc/version | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /proc/version | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
+# 安装基础依赖
+dependency="wget curl git bind-utils unzip gzip tar screen socat jq"
+if [[ -f /usr/bin/apt && -f /bin/systemctl ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
+	if [[ -f /usr/bin/yum ]]; then
+		cmd="yum"
+		$cmd -y install epel-release
+        $cmd -y install crontabs ${dependency}
+	fi
+	if [[ -f /usr/bin/apt ]]; then
+		cmd="apt"
+        $cmd -y install cron ${dependency}
+	fi
 else
     echo -e "${red}未检测到系统版本，本程序只支持CentOS，Ubuntu和Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
 fi
-
-if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
+sys_bit=$(uname -m)
+if [[ ${sys_bit} != "x86_64" ]] ; then
     echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)，如果检测有误，请联系作者"
     exit 2
 fi
-
-os_version=""
-
-# os version
-if [[ -f /etc/os-release ]]; then
-    os_version=$(awk -F'[= ."]' '/VERSION_ID/{print $3}' /etc/os-release)
-fi
-if [[ -z "$os_version" && -f /etc/lsb-release ]]; then
-    os_version=$(awk -F'[= ."]+' '/DISTRIB_RELEASE/{print $2}' /etc/lsb-release)
-fi
-
-if [[ x"${release}" == x"centos" ]]; then
-    if [[ ${os_version} -le 6 ]]; then
-        echo -e "${red}请使用 CentOS 7 或更高版本的系统！${plain}\n" && exit 1
-    fi
-elif [[ x"${release}" == x"ubuntu" ]]; then
-    if [[ ${os_version} -lt 16 ]]; then
-        echo -e "${red}请使用 Ubuntu 16 或更高版本的系统！${plain}\n" && exit 1
-    fi
-elif [[ x"${release}" == x"debian" ]]; then
-    if [[ ${os_version} -lt 8 ]]; then
-        echo -e "${red}请使用 Debian 8 或更高版本的系统！${plain}\n" && exit 1
-    fi
-fi
-install_base(){
-    if [[ x"${release}" == x"centos" ]]; then
-        yum install epel-release -y
-        yum install wget curl unzip gzip tar crontabs socat jq -y
-    else
-        apt install wget curl unzip gzip tar cron socat jq -y
-    fi
-}
+#设置时区为东八区
+echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 # 实现按任意键继续
 get_char(){
     SAVEDSTTY=`stty -g`
@@ -121,7 +84,10 @@ EOF
     echo -e "基础配置已写入 ${green}${config_ymlfile}${plain}"
 }
 config_nodes(){
-    if [[ -f ${config_ymlfile} ]]; then
+    if [[ ! -f ${config_ymlfile} ]]; then
+        echo "配置文件不存在，请确认已安装XrayR"
+        exit 1
+    else
         cat >>${config_ymlfile} <<EOF
     -
         PanelType: "Panel_Type" # Panel type: SSpanel, V2board, PMpanel, Proxypanel
@@ -143,13 +109,13 @@ config_nodes(){
             EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
             DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
             EnableProxyProtocol: false # Only works for WebSocket and TCP
-            EnableFallback: false # Only support for Trojan and Vless
-            FallBackConfigs:  # Support multiple fallbacks
+            EnableFallback: Enable_Fallback # Only support for Trojan and Vless
+            FallBackConfigs: # Support multiple fallbacks
                 -
                     SNI: # TLS SNI(Server Name Indication), Empty for any
                     Path: # HTTP PATH, Empty for any
-                    Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/fallback/ for details.
-                    ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for dsable
+                    Dest: "www.amazon.com:80" # Required, Destination of fallback, check https://xtls.github.io/config/fallback/ for details.
+                    ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
             CertConfig:
                 CertMode: "Cert_Mode" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "Cert_Domain" # Domain to cert
@@ -158,9 +124,6 @@ config_nodes(){
                 Email: "Cert_Email"
 EOF
         echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
-    else
-        echo "配置文件不存在，请先安装XrayR"
-        exit 1
     fi
 }
 Cert_Provider_alidns(){
@@ -205,32 +168,45 @@ config_dns(){
 }
 EOF
 }
-# 生成随机gmail邮箱
+# 生成邮箱账号
 config_Email(){
-    local Cert_Email_Account=$(((RANDOM << 9)))
-    Cert_Email=${Cert_Email_Account}@gmail.com
+    # local Cert_Email_Account=$(((RANDOM << 9)))
+    # Cert_Email=${Cert_Email_Account}@gmail.com
+    Cert_Email=admin@${Cert_Domain#*\.}
+    # 默认为二级子域名，取域名中第一个”.“右侧到结尾字符串
 }
 # 优先取出已存在的邮箱账号
-config_Email_exist(){
-    Cert_Email_Account=$(ls /etc/XrayR/cert/accounts/acme-v02.api.letsencrypt.org)
-    if [[ -n ${Cert_Email_Account} ]]; then
-        Cert_Email=${Cert_Email_Account}
-    else
-        config_Email
-    fi
-}
+# config_Email_exist(){
+#     Cert_Email_Account=$(ls /etc/XrayR/cert/accounts/acme-v02.api.letsencrypt.org)
+#     if [[ -n ${Cert_Email_Account} ]]; then
+#         Cert_Email=${Cert_Email_Account}
+#     else
+#         config_Email
+#     fi
+# }
 # 生成本地审计规则rulelist
 config_audit(){
     cat >${config_rulefile} <<EOF
-(api|ps|sv|offnavi|newvector|ulog\.imap|newloc)(\.map|)\.(baidu|n\.shifen)\.com
+(api|ps|sv|offnavi|newvector|ulog\.imap|newloc)(\.map|)\.(baidu|n\.shifen)\.(com|cn)
 (.*\.||)(360|so|qq|163|sohu|sogoucdn|sogou|uc|58|taobao|qpic)\.(org|com|net|cn)
 (.*\.||)(dafahao|minghui|dongtaiwang|epochtimes|ntdtv|falundafa|wujieliulan|zhengjian)\.(org|com|net)
 (.*\.||)(shenzhoufilm|secretchina|renminbao|aboluowang|mhradio|guangming|zhengwunet|soundofhope|yuanming|zhuichaguoji|fgmtv|xinsheng|shenyunperformingarts|epochweekly|tuidang|shenyun|falundata|bannedbook)\.(org|com|net)
-(.*\.||)(icbc|ccb|boc|bankcomm|abchina|cmbchina|psbc|cebbank|cmbc|pingan|spdb|citicbank|cib|hxb|bankofbeijing|hsbank|tccb|4001961200|bosc|hkbchina|njcb|nbcb|lj-bank|bjrcb|jsbchina|gzcb|cqcbank|czbank|hzbank|srcb|cbhb|cqrcb|grcbank|qdccb|bocd|hrbcb|jlbank|bankofdl|qlbchina|dongguanbank|cscb|hebbank|drcbank|zzbank|bsb|xmccb|hljrcc|jxnxs|gsrcu|fjnx|sxnxs|gx966888|gx966888|zj96596|hnnxs|ahrcu|shanxinj|hainanbank|scrcu|gdrcu|hbxh|ynrcc|lnrcc|nmgnxs|hebnx|jlnls|js96008|hnnx|sdnxs)\.(org|com|net|cn)
-(.*\.||)(firstbank|bot|cotabank|megabank|tcb-bank|landbank|hncb|bankchb|tbb|ktb|tcbbank|scsb|bop|sunnybank|kgibank|fubon|ctbcbank|cathaybk|eximbank|bok|ubot|feib|yuantabank|sinopac|esunbank|taishinbank|jihsunbank|entiebank|hwataibank|csc|skbank)\.(org|com|net|tw)
-(.*\.||)(unionpay|alipay|baifubao|yeepay|99bill|95516|51credit|cmpay|tenpay|lakala|jdpay)\.(org|com|net|cn)
+(.*\.||)(icbc|ccb|boc|bankcomm|abchina|cmbchina|psbc|cebbank|cmbc|pingan|spdb|citicbank|cib|hxb|bankofbeijing|hsbank|tccb|4001961200|bosc|hkbchina|njcb|nbcb|lj-bank|bjrcb|jsbchina|gzcb|cqcbank|czbank|hzbank|srcb|cbhb|cqrcb|grcbank|qdccb|bocd|hrbcb|jlbank|bankofdl|qlbchina|dongguanbank|cscb|hebbank|drcbank|zzbank|bsb|xmccb|hljrcc|jxnxs|gsrcu|fjnx|sxnxs|gx966888|gx966888|zj96596|hnnxs|ahrcu|shanxinj|hainanbank|scrcu|gdrcu|hbxh|ynrcc|lnrcc|nmgnxs|hebnx|jlnls|js96008|hnnx|sdnxs)\.(org|com|net|cn|bank)
+(.*\.||)(firstbank|bot|cotabank|megabank|tcb-bank|landbank|hncb|bankchb|tbb|ktb|tcbbank|scsb|bop|sunnybank|kgibank|fubon|ctbcbank|cathaybk|eximbank|bok|ubot|feib|yuantabank|sinopac|esunbank|taishinbank|jihsunbank|entiebank|hwataibank|csc|skbank|.*bank)\.(org|com|cn|net|tw)
+(.*\.||)(unionpay|alipay|baifubao|yeepay|99bill|95516|51credit|cmpay|tenpay|lakala|jdpay|mycard)\.(org|com|cn|net)
 (.*\.||)(metatrader4|metatrader5|mql5)\.(org|com|net)
+(.*\.||)(gov|12377|12315|12321)\.(org|com|cn|net|gov)
 EOF
+
+# 波塞冬后端规则配置需添加【regexp:】
+# regexp:(api|ps|sv|offnavi|newvector|ulog\.imap|newloc)(\.map|)\.(baidu|n\.shifen)\.com
+# regexp:(.*\.||)(360|so|qq|163|sohu|sogoucdn|sogou|uc|58|taobao|qpic)\.(org|com|net|cn)
+# regexp:(.*\.||)(dafahao|minghui|dongtaiwang|epochtimes|ntdtv|falundafa|wujieliulan|zhengjian·)\.(org|com|net)
+# regexp:(.*\.||)(shenzhoufilm|secretchina|renminbao|aboluowang|mhradio|guangming|zhengwunet|soundofhope|yuanming|zhuichaguoji|fgmtv|xinsheng|shenyunperformingarts|epochweekly|tuidang|shenyun|falundata|bannedbook)\.(org|com|net)
+# regexp:(.*\.||)(icbc|ccb|boc|bankcomm|abchina|cmbchina|psbc|cebbank|cmbc|pingan|spdb|citicbank|cib|hxb|bankofbeijing|hsbank|tccb|4001961200|bosc|hkbchina|njcb|nbcb|lj-bank|bjrcb|jsbchina|gzcb|cqcbank|czbank|hzbank|srcb|cbhb|cqrcb|grcbank|qdccb|bocd|hrbcb|jlbank|bankofdl|qlbchina|dongguanbank|cscb|hebbank|drcbank|zzbank|bsb|xmccb|hljrcc|jxnxs|gsrcu|fjnx|sxnxs|gx966888|gx966888|zj96596|hnnxs|ahrcu|shanxinj|hainanbank|scrcu|gdrcu|hbxh|ynrcc|lnrcc|nmgnxs|hebnx|jlnls|js96008|hnnx|sdnxs)\.(org|com|net|cn)
+# regexp:(.*\.||)(firstbank|bot|cotabank|megabank|tcb-bank|landbank|hncb|bankchb|tbb|ktb|tcbbank|scsb|bop|sunnybank|kgibank|fubon|ctbcbank|cathaybk|eximbank|bok|ubot|feib|yuantabank|sinopac|esunbank|taishinbank|jihsunbank|entiebank|hwataibank|csc|skbank)\.(org|com|net|tw)
+# regexp:(.*\.||)(unionpay|alipay|baifubao|yeepay|99bill|95516|51credit|cmpay|tenpay|lakala|jdpay)\.(org|com|net|cn)
+# regexp:(.*\.||)(metatrader4|metatrader5|mql5)\.(org|com|net)
 }
 # Pre-installation settings
 config_set(){
@@ -336,13 +312,18 @@ config_modify(){
     else
         sed -i "s|Enable_XTLS|false|" ${config_ymlfile}
     fi
+    if [ "$Node_Type" == "Trojan" ]; then
+        sed -i "s|Enable_Fallback|true|" ${config_ymlfile}   
+    fi
     if [ "$is_vless" == "1" ]; then
         sed -i "s|Enable_Vless|true|" ${config_ymlfile}
+        sed -i "s|Enable_Fallback|true|" ${config_ymlfile}
     else
         sed -i "s|Enable_Vless|false|" ${config_ymlfile}
+        sed -i "s|Enable_Fallback|false|" ${config_ymlfile}
     fi
     # 邮箱账号
-    config_Email_exist
+    config_Email
     sed -i "s|Cert_Email|${Cert_Email}|" ${config_ymlfile}
 
     if [[ "${Cert_Provider}" == "alidns" ]]; then
@@ -360,8 +341,8 @@ config_modify(){
         # sed -i "s|\"ACCESS_KEY\"|${ACCESS_KEY}|" ${config_ymlfile}
         sed -i "s|\"SECRET_KEY\"|${SECRET_KEY}|" ${config_ymlfile}
     else
-        echo -e "未启用或未正确选择dns认证，跳过……"
-        echo -e "如不符合预期请自行检查 ${red}${config_ymlfile}${plain}"
+        echo -e "未选择dns认证，跳过……"
+        echo -e "如不符合预期请自行检查 ${green}${config_ymlfile}${plain}"
     fi
     # V2board启用本地审计
     if [ "${Panel_Type}"=="V2board"]; then
@@ -389,17 +370,16 @@ check_status(){
 }
 
 install_acme(){
-    install_base
     if [[ ! -f ~/.acme.sh/acme.sh ]]; then
         echo -e "${green}开始安装 acme${plain}"
         curl https://get.acme.sh | sh
+        echo -e "${green}acme 安装完成${plain}"
     else
         echo -e "acme已经在系统里了..."
     fi
 }
 
 install_XrayR(){
-    install_base
     echo -e "${green}开始安装 XrayR${plain}"
     if [[ -e /usr/local/XrayR/ ]]; then
         rm -rf /usr/local/XrayR/
@@ -437,7 +417,6 @@ install_XrayR(){
     rm -f /etc/systemd/system/XrayR.service
     file="https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.service"
     wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
-    #cp -f XrayR.service /etc/systemd/system/
     systemctl daemon-reload
     systemctl stop XrayR
     systemctl enable XrayR
@@ -451,8 +430,9 @@ install_XrayR(){
     fi
 
     if [[ ! -f ${config_ymlfile} ]]; then
+        config_set
         config_base && config_nodes
-        config_set && config_modify
+        config_modify
         echo -e ""
         echo -e "全新安装完成，更多内容请见：https://github.com/XrayR-project/XrayR"
     else
@@ -486,44 +466,28 @@ XrayR_tool(){
         curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/XrayR.sh
         chmod +x /usr/bin/XrayR      
     fi
-    echo -e ""
-    echo "XrayR 管理脚本使用方法: "
-    echo "------------------------------------------"
-    echo "XrayR                    - 显示管理菜单 (功能更多)"
-    echo "XrayR restart            - 重启 XrayR"
-    echo "XrayR status             - 查看 XrayR 状态"
-    echo "XrayR log                - 查看 XrayR 日志"
-    echo "XrayR config             - 显示配置文件内容"
-    echo "XrayR start              - 启动 XrayR"
-    echo "XrayR stop               - 停止 XrayR"
-    echo "XrayR enable             - 设置 XrayR 开机自启"
-    echo "XrayR disable            - 取消 XrayR 开机自启"
-    echo "XrayR update             - 更新 XrayR"
-    echo "XrayR update x.x.x       - 更新 XrayR 指定版本"
-    echo "XrayR install            - 安装 XrayR"
-    echo "XrayR uninstall          - 卸载 XrayR"
-    echo "XrayR version            - 查看 XrayR 版本"
-    echo "------------------------------------------"
-    pause_press
 }
 
 # 菜单
 menu(){
 	clear
+	echo -e "\t=============================="
+	echo -e "\t	Author: 金将军"
+	echo -e "\t	Version: 1.0.0"
+	echo -e "\t=============================="
 	echo
-	echo -e "\t1.安装XrayR"
+	echo -e "\t1.单独安装XrayR"
 	echo -e "\t2.新增nodes"
-	echo -e "\t3.安装acme"
-	echo -e "\t4.显示XrayR命令"
+	echo -e "\t3.单独安装acme"
 	echo -e "\t0.退出\n"
-	echo -en "请输入数字选项回车: "
-    # read -p "请输入数字[1-4]:" menu_Num
-    read -n 1 option
+	echo -en "\t请输入数字选项: "
+	# read -p "请输入数字选项: " menu_Num
+	read -n 1 option
 }
 while [ 1 ]
 do
 	menu
-    # case "$menu_Num" in
+	# case "$menu_Num" in
 	case "$option" in
 		0)
 		break
@@ -532,21 +496,15 @@ do
 		install_XrayR $1
 		;;
 		2)
-		config_nodes
         config_set
-        config_modify
-        systemctl restart XrayR
-        sleep 5
-        systemctl -l status XrayR
+		config_nodes && config_modify
+        systemctl restart XrayR && systemctl -l status XrayR
 		;;
 		3)
 		install_acme
 		;;
-		4)
-		XrayR_tool
-		;;
 		*)
-		echo "请输入正确数字[1-4]:"
+		echo "请输入正确数字:"
 		;;
 	esac
 done

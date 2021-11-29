@@ -1,0 +1,14 @@
+# global block
+{
+  email ${Cert_Email}
+}
+
+# snippet block
+() {
+
+}
+
+# site block
+Domain {
+
+}
