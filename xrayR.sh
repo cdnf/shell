@@ -16,16 +16,18 @@ config_dnsfile="/etc/XrayR/dns.json"
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
 # 安装基础依赖
-dependency="wget curl git bind-utils unzip gzip tar screen socat jq"
+dependency="wget curl git unzip gzip tar screen lrzsz socat ntpdate gcc make automake jq"
 if [[ -f /usr/bin/apt && -f /bin/systemctl ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
 	if [[ -f /usr/bin/yum ]]; then
 		cmd="yum"
+        cron_srv="crond"
 		$cmd -y install epel-release
-        $cmd -y install crontabs ${dependency}
+        $cmd -y install ${dependency} crontabs bind-utils
 	fi
 	if [[ -f /usr/bin/apt ]]; then
 		cmd="apt"
-        $cmd -y install cron ${dependency}
+        cron_srv="cron"
+        $cmd -y install ${dependency} cron dnsutils
 	fi
 else
     echo -e "${red}未检测到系统版本，本程序只支持CentOS，Ubuntu和Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
@@ -37,6 +39,11 @@ if [[ ${sys_bit} != "x86_64" ]] ; then
 fi
 #设置时区为东八区
 echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+#添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
+sed -i '/^.*ntpdate*/d' /etc/crontab
+sed -i '$a\0 1 * * 1 root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/crontab
+hwclock -w && systemctl restart ${cron_srv}
+
 # 实现按任意键继续
 get_char(){
     SAVEDSTTY=`stty -g`
@@ -119,8 +126,8 @@ config_nodes(){
             CertConfig:
                 CertMode: "Cert_Mode" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "Cert_Domain" # Domain to cert
-                CertFile: "./cert/Cert_Domain.cert" # Provided if the CertMode is file
-                KeyFile: "./cert/Cert_Domain.key" # http filepath is /etc/XrayR/cert/certificates/
+                CertFile: "/etc/XrayR/cert/certificates/Cert_Domain.crt" # Provided if the CertMode is file
+                KeyFile: "/etc/XrayR/cert/certificates/Cert_Domain.key" # http filepath is /etc/XrayR/cert/certificates/
                 Email: "Cert_Email"
 EOF
         echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
@@ -175,15 +182,6 @@ config_Email(){
     Cert_Email=admin@${Cert_Domain#*\.}
     # 默认为二级子域名，取域名中第一个”.“右侧到结尾字符串
 }
-# 优先取出已存在的邮箱账号
-# config_Email_exist(){
-#     Cert_Email_Account=$(ls /etc/XrayR/cert/accounts/acme-v02.api.letsencrypt.org)
-#     if [[ -n ${Cert_Email_Account} ]]; then
-#         Cert_Email=${Cert_Email_Account}
-#     else
-#         config_Email
-#     fi
-# }
 # 生成本地审计规则rulelist
 config_audit(){
     cat >${config_rulefile} <<EOF
@@ -208,8 +206,21 @@ EOF
 # regexp:(.*\.||)(unionpay|alipay|baifubao|yeepay|99bill|95516|51credit|cmpay|tenpay|lakala|jdpay)\.(org|com|net|cn)
 # regexp:(.*\.||)(metatrader4|metatrader5|mql5)\.(org|com|net)
 }
+# 规则组合
+# VMESS，即最普通的V2ray服务器，没有伪装，也不是VLESS
+# VMESS+KCP，传输协议使用mKCP，VPS线路不好时可能有奇效
+# VMESS+TCP+TLS，带伪装的V2ray，不能过CDN中转
+# *VMESS+WS+TLS，即最通用的V2ray伪装方式，能过CDN中转，推荐使用
+# VLESS+KCP，传输协议使用mKCP
+# VLESS+TCP+TLS，通用的VLESS版本，不能过CDN中转，但比VMESS+TCP+TLS方式性能更好
+# *VLESS+WS+TLS，基于websocket的V2ray伪装VLESS版本，能过CDN中转，有过CDN情况下推荐使用
+# *VLESS+TCP+XTLS，目前最强悍的VLESS+XTLS组合，强力推荐使用（但是支持的客户端少一些）
+# trojan，轻量级的伪装协议
+# *trojan+XTLS，trojan加强版，使用XTLS技术提升性能
+
 # Pre-installation settings
 config_set(){
+    echo
     read -p "前端节点信息里面的节点ID:" Node_ID
         [ -z "${Node_ID}" ] && Node_ID=1
     read -p "前端面板认证域名(包括http[s]://):" Api_Host
@@ -230,24 +241,29 @@ config_set(){
     echo -e "[1] V2ray \t [2] Trojan \t [3] Shadowsocks"
     read -p "节点类型（默认V2ray）:" node_num
         [ -z "${node_num}" ] && node_num="1"
-    if [ "$node_num" == "1" ]; then
+    if [[ "$node_num" == "1" ]]; then
         Node_Type="V2ray"
-    elif [ "$node_num" == "2" ]; then
+    elif [[ "$node_num" == "2" ]]; then
         Node_Type="Trojan"
-    elif [ "$node_num" == "3" ]; then
+    elif [[ "$node_num" == "3" ]]; then
         Node_Type="Shadowsocks"
     else
         echo "type error, please try again"
         exit
     fi
-    if [ "$node_num" == "1" -o "$node_num" == "2" ]; then
-        echo -e "[1] 是 \t [2] 否"
-        read -p "是否开启tls（默认否）:" is_tls
-        if [ "$is_tls" == "1" ]; then
+    if [[ "$node_num" == "1" || "$node_num" == "2" ]]; then
+        if [[ "$node_num" == "2" ]]; then
+            echo -e "所选节点类型为 Trojan，已默认开启TLS"
+            is_tls="1"
+        else
+            echo -e "[1] 是 \t [2] 否"
+            read -p "是否开启tls（默认否）:" is_tls
+        fi
+        if [[ "$is_tls" == "1" ]]; then
             read -p "请输入解析到本机的域名:" Cert_Domain
             echo -e "[1] 是 \t [2] 否"
             read -p "是否开启xtls（默认否）:" is_xtls
-            if [ "$node_num" == "1" ]; then
+            if [[ "$node_num" == "1" ]]; then
                 echo -e "[1] 是 \t [2] 否"
                 read -p "是否开启vless（默认否）:" is_vless
             fi
@@ -301,25 +317,25 @@ config_modify(){
     sed -i "s|Node_ID|${Node_ID}|" ${config_ymlfile}
     sed -i "s|Node_Type|${Node_Type}|" ${config_ymlfile}
     sed -i "s|Cert_Domain|${Cert_Domain}|" ${config_ymlfile}
-    if [ "$is_tls" == "1" ]; then
+    if [[ "$is_tls" == "1" ]]; then
         sed -i "s|Cert_Mode|${Cert_Mode}|" ${config_ymlfile}
         install_acme
     else
         sed -i "s|Cert_Mode|none|" ${config_ymlfile}
     fi
-    if [ "$is_xtls" == "1" ]; then
+    if [[ "$is_xtls" == "1" ]]; then
         sed -i "s|Enable_XTLS|true|" ${config_ymlfile}
     else
         sed -i "s|Enable_XTLS|false|" ${config_ymlfile}
     fi
-    if [ "$Node_Type" == "Trojan" ]; then
-        sed -i "s|Enable_Fallback|true|" ${config_ymlfile}   
-    fi
-    if [ "$is_vless" == "1" ]; then
+    if [[ "$is_vless" == "1" ]]; then
         sed -i "s|Enable_Vless|true|" ${config_ymlfile}
-        sed -i "s|Enable_Fallback|true|" ${config_ymlfile}
     else
         sed -i "s|Enable_Vless|false|" ${config_ymlfile}
+    fi
+    if [[ "$Node_Type" == "Trojan" || "$is_vless" == "1" ]]; then
+        sed -i "s|Enable_Fallback|true|" ${config_ymlfile}   
+    else
         sed -i "s|Enable_Fallback|false|" ${config_ymlfile}
     fi
     # 邮箱账号
@@ -345,12 +361,10 @@ config_modify(){
         echo -e "如不符合预期请自行检查 ${green}${config_ymlfile}${plain}"
     fi
     # V2board启用本地审计
-    if [ "${Panel_Type}"=="V2board"]; then
+    if [[ "${Panel_Type}" == "V2board" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
         echo -e "V2board不支持在线同步规则，将启用本地规则……"
-        if [ "${Node_Type}" == "Trojan" -o "${Node_Type}" == "Shadowsocks" ]; then
-            config_audit
-            sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
-        fi
+        config_audit
+        sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
     else
         sed -i "s|\"Rule_List\"||" ${config_ymlfile}
     fi
@@ -380,6 +394,7 @@ install_acme(){
 }
 
 install_XrayR(){
+    echo
     echo -e "${green}开始安装 XrayR${plain}"
     if [[ -e /usr/local/XrayR/ ]]; then
         rm -rf /usr/local/XrayR/
@@ -433,7 +448,7 @@ install_XrayR(){
         config_set
         config_base && config_nodes
         config_modify
-        echo -e ""
+        echo
         echo -e "全新安装完成，更多内容请见：https://github.com/XrayR-project/XrayR"
     else
         systemctl start XrayR
@@ -441,21 +456,25 @@ install_XrayR(){
         check_status
         echo -e ""
         if [[ $? == 0 ]]; then
+            echo
             echo -e "${green}XrayR 重启成功${plain}"
         else
+            echo
             echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://github.com/XrayR-project/XrayR/wiki${plain}"
         fi
     fi
     # 安装管理工具
     XrayR_tool
-    echo ""
+    echo
     echo "安装完成，正在尝试重启XrayR服务..."
     echo
     XrayR restart
-    echo "正在关闭防火墙！"
+    if [[ -f /usr/sbin/firewalld ]]; then
+        echo "正在关闭防火墙！"
+        systemctl disable firewalld
+        systemctl stop firewalld
+    fi
     echo
-    systemctl disable firewalld
-    systemctl stop firewalld
     echo "XrayR服务已经完成重启，请愉快地享用！"
     pause_press
 }
@@ -470,15 +489,16 @@ XrayR_tool(){
 
 # 菜单
 menu(){
-	clear
-	echo -e "\t=============================="
-	echo -e "\t	Author: 金将军"
-	echo -e "\t	Version: 1.0.0"
-	echo -e "\t=============================="
+    echo
+	echo -e "======================================"
+	echo -e "	Author: 金将军"
+	echo -e "	Version: 1.0.1"
+	echo -e "======================================"
 	echo
-	echo -e "\t1.单独安装XrayR"
+	echo -e "\t1.安装XrayR"
 	echo -e "\t2.新增nodes"
-	echo -e "\t3.单独安装acme"
+	echo -e "\t3.安装acme"
+	echo -e "\t9.卸载XrayR"
 	echo -e "\t0.退出\n"
 	echo -en "\t请输入数字选项: "
 	# read -p "请输入数字选项: " menu_Num
@@ -502,6 +522,10 @@ do
 		;;
 		3)
 		install_acme
+		;;
+		9)
+        XrayR_tool
+		XrayR uninstall
 		;;
 		*)
 		echo "请输入正确数字:"
