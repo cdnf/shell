@@ -123,15 +123,28 @@ config_nodes(){
                     Path: # HTTP PATH, Empty for any
                     Dest: "www.amazon.com:80" # Required, Destination of fallback, check https://xtls.github.io/config/fallback/ for details.
                     ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
+EOF
+        echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
+    fi
+}
+config_Cert(){
+    cat >>${config_ymlfile} <<EOF
             CertConfig:
                 CertMode: "Cert_Mode" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "Cert_Domain" # Domain to cert
                 CertFile: "/etc/XrayR/cert/certificates/Cert_Domain.crt" # Provided if the CertMode is file
                 KeyFile: "/etc/XrayR/cert/certificates/Cert_Domain.key" # http filepath is /etc/XrayR/cert/certificates/
+EOF
+}
+# 生成邮箱账号
+config_Email(){
+    cat >>${config_ymlfile} <<EOF
                 Email: "Cert_Email"
 EOF
-        echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
-    fi
+    # local Cert_Email_Account=$(((RANDOM << 9)))
+    # Cert_Email=${Cert_Email_Account}@gmail.com
+    Cert_Email=admin@${Cert_Domain#*\.}
+    # 默认为二级子域名，取域名中第一个”.“右侧到结尾字符串
 }
 Cert_Provider_alidns(){
     cat >>${config_ymlfile} <<EOF
@@ -175,13 +188,6 @@ config_dns(){
 }
 EOF
 }
-# 生成邮箱账号
-config_Email(){
-    # local Cert_Email_Account=$(((RANDOM << 9)))
-    # Cert_Email=${Cert_Email_Account}@gmail.com
-    Cert_Email=admin@${Cert_Domain#*\.}
-    # 默认为二级子域名，取域名中第一个”.“右侧到结尾字符串
-}
 # 生成本地审计规则rulelist
 config_audit(){
     cat >${config_rulefile} <<EOF
@@ -194,6 +200,7 @@ config_audit(){
 (.*\.||)(unionpay|alipay|baifubao|yeepay|99bill|95516|51credit|cmpay|tenpay|lakala|jdpay|mycard)\.(org|com|cn|net)
 (.*\.||)(metatrader4|metatrader5|mql5)\.(org|com|net)
 (.*\.||)(gov|12377|12315|12321)\.(org|com|cn|net|gov)
+(.*\.||)(2miners|666pool|91pool|atticpool|anomp|aapool|antpool|globalpool|miningpoolhub|blackpool|blockmasters|btchd|bitminter|bitcoin|bhdpool|bginpool|baimin|bi-chi|bohemianpool|bixin|bwpool|btcguild|batpool|bw|btcc|btc|btc|bitfury|bitclubnetwork|beepool|coinhive|chainpool|connectbtc|cybtc|canoepool|cryptograben|cryptonotepool|coinotron|dashcoinpool|dxpool|dwarfpool|dpool|dpool|dmpools|everstake|epool|ethpool|ethfans|easy2mine|ethermine|extremepool|firepool|fir|fkpool|flypool|f3pool|gridcash|gath3r|grin-pool|grinmint|c3pool|gbminers|get.bi-chi|globalpool|give-me-ltc|yminer|stmining|hashquark|hashrabbit|hummerpool|hdpool|h-pool|hashvault|hpool|huobipool)\.(org|com|cn|net|cc|co|io|one|pro|info|im)
 EOF
 
 # 波塞冬后端规则配置需添加【regexp:】
@@ -251,16 +258,11 @@ config_set(){
         echo "type error, please try again"
         exit
     fi
+    read -p "请输入解析到本机的域名:" Cert_Domain
     if [[ "$node_num" == "1" || "$node_num" == "2" ]]; then
-        if [[ "$node_num" == "2" ]]; then
-            echo -e "所选节点类型为 Trojan，已默认开启TLS"
-            is_tls="1"
-        else
-            echo -e "[1] 是 \t [2] 否"
-            read -p "是否开启tls（默认否）:" is_tls
-        fi
+        echo -e "[1] 是 \t [2] 否"
+        read -p "是否开启tls（默认否）:" is_tls
         if [[ "$is_tls" == "1" ]]; then
-            read -p "请输入解析到本机的域名:" Cert_Domain
             echo -e "[1] 是 \t [2] 否"
             read -p "是否开启xtls（默认否）:" is_xtls
             if [[ "$node_num" == "1" ]]; then
@@ -316,32 +318,42 @@ config_modify(){
     sed -i "s|Api_Key|${Api_Key}|" ${config_ymlfile}
     sed -i "s|Node_ID|${Node_ID}|" ${config_ymlfile}
     sed -i "s|Node_Type|${Node_Type}|" ${config_ymlfile}
-    sed -i "s|Cert_Domain|${Cert_Domain}|" ${config_ymlfile}
-    if [[ "$is_tls" == "1" ]]; then
-        sed -i "s|Cert_Mode|${Cert_Mode}|" ${config_ymlfile}
-        install_acme
+    if [[ "$is_vless" == "1" ]]; then
+        sed -i "s|Enable_Vless|true|" ${config_ymlfile}
     else
-        sed -i "s|Cert_Mode|none|" ${config_ymlfile}
+        sed -i "s|Enable_Vless|false|" ${config_ymlfile}
     fi
     if [[ "$is_xtls" == "1" ]]; then
         sed -i "s|Enable_XTLS|true|" ${config_ymlfile}
     else
         sed -i "s|Enable_XTLS|false|" ${config_ymlfile}
     fi
-    if [[ "$is_vless" == "1" ]]; then
-        sed -i "s|Enable_Vless|true|" ${config_ymlfile}
+    # V2board启用本地审计
+    if [[ "${Panel_Type}" == "V2board" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
+        echo -e "V2board不支持在线同步规则，将启用本地规则……"
+        config_audit
+        sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
     else
-        sed -i "s|Enable_Vless|false|" ${config_ymlfile}
+        sed -i "s|\"Rule_List\"||" ${config_ymlfile}
     fi
+
     if [[ "$Node_Type" == "Trojan" || "$is_vless" == "1" ]]; then
         sed -i "s|Enable_Fallback|true|" ${config_ymlfile}   
     else
         sed -i "s|Enable_Fallback|false|" ${config_ymlfile}
     fi
-    # 邮箱账号
-    config_Email
-    sed -i "s|Cert_Email|${Cert_Email}|" ${config_ymlfile}
 
+    config_Cert
+    sed -i "s|Cert_Domain|${Cert_Domain}|" ${config_ymlfile}
+    
+    if [[ "$is_tls" == "1" ]]; then
+        config_Email
+        sed -i "s|Cert_Mode|${Cert_Mode}|" ${config_ymlfile}
+        sed -i "s|Cert_Email|${Cert_Email}|" ${config_ymlfile}
+        install_acme
+    else
+        sed -i "s|Cert_Mode|none|" ${config_ymlfile}
+    fi
     if [[ "${Cert_Provider}" == "alidns" ]]; then
         Cert_Provider_alidns
         sed -i "s|\"ACCESS_KEY\"|${ACCESS_KEY}|" ${config_ymlfile}
@@ -359,14 +371,6 @@ config_modify(){
     else
         echo -e "未选择dns认证，跳过……"
         echo -e "如不符合预期请自行检查 ${green}${config_ymlfile}${plain}"
-    fi
-    # V2board启用本地审计
-    if [[ "${Panel_Type}" == "V2board" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
-        echo -e "V2board不支持在线同步规则，将启用本地规则……"
-        config_audit
-        sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
-    else
-        sed -i "s|\"Rule_List\"||" ${config_ymlfile}
     fi
 }
 
@@ -492,7 +496,7 @@ menu(){
     echo
 	echo -e "======================================"
 	echo -e "	Author: 金将军"
-	echo -e "	Version: 1.0.1"
+	echo -e "	Version: 1.0.2"
 	echo -e "======================================"
 	echo
 	echo -e "\t1.安装XrayR"
