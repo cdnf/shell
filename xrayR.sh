@@ -529,14 +529,10 @@ config_caddy(){
 ${Cert_Domain} {
     root * /srv/www
     file_server
+    encode gzip
+    tls ${Cert_Email}
     log {
-        output file /srv/www/${Cert_Domain}.log
-    }
-    tls {
-        dns ${dns_Provider} ${ACCESS_KEY}
-        protocols tls1.2 tls1.3
-        ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
-        curves x25519
+        output file /srv/www/caddy.log
     }
     @websocket {
         path ${network_path}
