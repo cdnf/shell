@@ -14,7 +14,7 @@ bbr_url="https://raw.githubusercontent.com/chiakge/Linux-NetSpeed/master/tcp.sh"
 bbr_file="bbr_tcp_mod.sh"
 v2_installer="https://raw.githubusercontent.com/cndf/shell/master/v2ray-ssrpanel-plugin-install.sh"
 v2_config="https://raw.githubusercontent.com/cndf/shell/master/resource/v2ray-config.json"
-caddy_www="https://raw.githubusercontent.com/cndf/shell/master/resource/www.zip"
+caddy_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 caddy_config="https://raw.githubusercontent.com/cndf/shell/master/resource/Caddyfile"
 
 [ $(id -u) != "0" ] && { echo "错误: 请用root执行"; exit 1; }
