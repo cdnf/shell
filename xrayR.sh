@@ -136,7 +136,6 @@ EOF
     fi
 }
 config_Cert(){
-    config_Email
     cat >>${config_ymlfile} <<EOF
             CertConfig:
                 CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
@@ -311,6 +310,7 @@ config_set(){
         [ -z "${Node_ID}" ] && Node_ID=1
     
     read -p "请输入解析到本机的域名:" Cert_Domain
+    config_Email
     # 从面板获取节点关键信息
     config_GetNodeInfo
 
@@ -383,9 +383,6 @@ config_set(){
             echo "后端服务不可设置为 443 或 80，请到面板修改为其他端口"
             exit 2
         fi
-        # 当前懒得做其他选项，直接cloudflare
-        dns_Provider="cloudflare"
-        config_dns_Provider
         config_caddy
     elif [[ "$rules_num" == "2" ]]; then
         # 是否启用tls
@@ -481,7 +478,7 @@ check_status(){
 
 install_Caddy_manual(){
     # 官网选的 CF+dnspod+alidns 插件下载链接，可用"caddy list-modules"命令查看
-    caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/caddy-dns/alidns"
+    caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod"
     wget -N  --no-check-certificate -O "/usr/bin/caddy" ${caddy_url}
     chmod +x "/usr/bin/caddy"
     groupadd --system caddy
@@ -558,9 +555,6 @@ tls_acme_install(){
     acme.sh --upgrade --auto-upgrade
 }
 tls_acme_register(){
-    if [[ -z ${Cert_Email} ]]; then
-       config_Email 
-    fi
     # https://github.com/acmesh-official/acme.sh/wiki/Server
 	acme.sh --register-account -m ${Cert_Email} --server zerossl
     # acme.sh --set-default-ca  --server letsencrypt
@@ -581,11 +575,11 @@ tls_acme_deploy(){
 	if [ ! -d "${tls_path}" ]; then
 		mkdir -p ${tls_path}
 	fi
-	acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.cer --key-file ${tls_path}/${Cert_Domain}.key --ecc
+	acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc
 	XrayR restart
 	# 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
 	sed -i '/^.*acme.*\.cert\/.*/d'  /var/spool/cron/root
-	echo "0 0 1 */2 * acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.cer --key-file ${tls_path}/${Cert_Domain}.key --ecc" >> /var/spool/cron/root
+	echo "0 0 1 */2 * acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc" >> /var/spool/cron/root
 }
 
 install_XrayR(){
