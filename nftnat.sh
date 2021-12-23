@@ -73,7 +73,9 @@ install_nft() {
 
 install_nat() {
   # https://github.com/arloor/nftables-nat-rust
-  wget -O /usr/local/bin/nat http://cdn.arloor.com/tool/dnat
+  # dnat="http://cdn.arloor.com/tool/dnat"
+  dnat="https://github.com/cdnf/shell/raw/master/resource/dnat"
+  wget -O /usr/local/bin/nat ${dnat}
   chmod +x /usr/local/bin/nat
   # 创建systemd服务
   cat >/lib/systemd/system/nat.service <<EOF
