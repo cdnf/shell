@@ -25,7 +25,6 @@ if [[ -f /usr/bin/apt && -f /bin/systemctl ]] || [[ -f /usr/bin/yum && -f /bin/s
     cron_srv="cron"
     $cmd -y install cron dnsutils
   fi
-  $cmd -y update
   $cmd -y install ${dependency}
 else
   echo -e "${red}未检测到系统版本，本程序只支持CentOS，Ubuntu和Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
@@ -115,6 +114,7 @@ config_del() {
   read -p "输入需要删除的行序号：" row_num
   if echo ${row_num} | grep -q '[0-9]'; then
     sed -i "${row_num}d" ${nat_conf}
+    config_show
     echo
     echo -e "配置已删除，大约 1 分钟后生效"
   else
@@ -141,8 +141,8 @@ config_review() {
     d_ports=${d_port}
   elif [ "${flag_port}" == "RANGE" ]; then
     str="区间端口"
-    s_ports=${s_port} - ${d_port}
-    d_ports=${s_port} - ${d_port}
+    s_ports="${s_port} ~ ${d_port}"
+    d_ports="${s_port} ~ ${d_port}"
   else
     echo -e "未匹配相关配置"
     str=""
@@ -154,17 +154,18 @@ config_review() {
 config_show() {
   count_line=$(awk 'END{print NR}' ${nat_conf})
   if [[ ${count_line} ]]; then
+    echo
     echo -e "                      nftnat 现存配置                        "
-    echo -e "--------------------------------------------------------"
-    echo -e "序号\t |转发方式\t |本地端口\t |目标地址\t |目标端口"
-    echo -e "--------------------------------------------------------"
+    echo -e "------------------------------------------------------------------------"
+    echo -e "序号\t|转发方式\t|本地端口\t|目标地址\t|目标端口"
+    echo -e "------------------------------------------------------------------------"
 
     for ((i = 1; i <= ${count_line}; i++)); do
       trans_conf=$(sed -n "${i}p" ${nat_conf})
       config_review
 
-      echo -e " ${i}\t |${str}\t |${s_port}\t |${d_addr}\t |${d_port}"
-      echo -e "--------------------------------------------------------"
+      echo -e " ${i}\t|${str}\t|${s_ports}\t|${d_addr}\t|${d_ports}"
+      echo -e "------------------------------------------------------------------------"
     done
   else
     echo -e "找不到配置文件 ${nat_conf}" && exit 2
@@ -206,6 +207,7 @@ menu() {
   echo -e "\t1.安装 nftnat"
   echo -e "\t2.新增转发配置"
   echo -e "\t3.删除现存转发"
+  echo -e "\t4.查看现存配置"
   echo -e "\t0.退出\n"
   echo -en "\t请输入数字选项: "
   # read -p "请输入数字选项: " menu_Num
@@ -228,6 +230,9 @@ while [ 1 ]; do
     ;;
   3)
     config_del
+    ;;
+  4)
+    config_show
     ;;
   *)
     echo "请输入正确数字:"
