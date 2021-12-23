@@ -21,24 +21,25 @@ stable_version="v0.7.2"
 # 安装基础依赖
 dependency="wget curl git unzip gzip tar screen lrzsz socat ntpdate jq"
 if [[ -f /usr/bin/apt && -f /bin/systemctl ]] || [[ -f /usr/bin/yum && -f /bin/systemctl ]]; then
-	if [[ -f /usr/bin/yum ]]; then
-		os="centos"
+    if [[ -f /usr/bin/yum ]]; then
+        os="centos"
+        cmd="yum"
         cron_srv="crond"
-		yum -y install epel-release
-        yum -y update
-        yum -y install ${dependency} crontabs bind-utils
-	fi
-	if [[ -f /usr/bin/apt ]]; then
-		os="debian"
+        $cmd -y install epel-release crontabs bind-utils
+    fi
+    if [[ -f /usr/bin/apt ]]; then
+        os="debian"
+        cmd="apt"
         cron_srv="cron"
-        apt -y update
-        apt -y install ${dependency} cron dnsutils
-	fi
+        $cmd -y install cron dnsutils
+    fi
+    $cmd -y update
+    $cmd -y install ${dependency}
 else
     echo -e "${red}未检测到系统版本，本程序只支持CentOS，Ubuntu和Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
 fi
 sys_bit=$(uname -m)
-if [[ ${sys_bit} != "x86_64" ]] ; then
+if [[ ${sys_bit} != "x86_64" ]]; then
     echo "本软件不支持 32 位系统(x86)，请使用 64 位系统(x86_64)，如果检测有误，请联系作者"
     exit 2
 fi
@@ -50,33 +51,33 @@ sed -i '$a\0 1 * * 1 root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/cronta
 hwclock -w && systemctl restart ${cron_srv}
 
 # 实现按任意键继续
-get_char(){
-    SAVEDSTTY=`stty -g`
+get_char() {
+    SAVEDSTTY=$(stty -g)
     stty -echo
     stty cbreak
-    dd if=/dev/tty bs=1 count=1 2> /dev/null
+    dd if=/dev/tty bs=1 count=1 2>/dev/null
     stty -raw
     stty echo
     stty $SAVEDSTTY
 }
-pause_press(){
-	# 启用功能的开关 1开启|其它不开启
-	enable_pause=1
+pause_press() {
+    # 启用功能的开关 1开启|其它不开启
+    enable_pause=1
 
-	# 判断第一个参数是否为空，约定俗成的写法
-	if [ "x$1" != "x" ]; then
-		echo $1
-	fi
-	if [ $enable_pause -eq 1 ]; then
-		# echo "Press any key to continue!"
-		echo "按任意键继续!"
-		char=`get_char`
-	fi
+    # 判断第一个参数是否为空，约定俗成的写法
+    if [ "x$1" != "x" ]; then
+        echo $1
+    fi
+    if [ $enable_pause -eq 1 ]; then
+        # echo "Press any key to continue!"
+        echo "按任意键继续!"
+        char=$(get_char)
+    fi
 }
 
 # Writing json
 # 配置文件说明：https://crackair.gitbook.io/xrayr-project/xrayr-pei-zhi-wen-jian-shuo-ming/config
-config_init(){
+config_init() {
     cat >${config_ymlfile} <<EOF
 Log:
     Level: error # Log level: none, error, warning, info, debug 
@@ -95,7 +96,7 @@ Nodes:
 EOF
     echo -e "基础配置已写入 ${green}${config_ymlfile}${plain}"
 }
-config_nodes(){
+config_nodes() {
     if [[ ! -f ${config_ymlfile} ]]; then
         echo "配置文件不存在，请确认已安装XrayR"
         exit 1
@@ -135,7 +136,7 @@ EOF
         echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
     fi
 }
-config_Cert(){
+config_Cert() {
     cat >>${config_ymlfile} <<EOF
             CertConfig:
                 CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
@@ -145,14 +146,14 @@ config_Cert(){
                 Email: "${Cert_Email}"
 EOF
 }
-config_Provider_dnspod(){
+config_Provider_dnspod() {
     cat >>${config_ymlfile} <<EOF
                 Provider: "dnspod" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
                 DNSEnv: # DNS ENV option used by DNS provider
                     DNSPOD_API_KEY: "${ACCESS_KEY}"
 EOF
 }
-config_Provider_cloudflare(){
+config_Provider_cloudflare() {
     cat >>${config_ymlfile} <<EOF
                 Provider: "cloudflare" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
                 DNSEnv: # DNS ENV option used by DNS provider
@@ -161,7 +162,7 @@ config_Provider_cloudflare(){
                     # CF_DNS_API_TOKEN: "${SECRET_KEY}"
 EOF
 }
-config_Provider_namesilo(){
+config_Provider_namesilo() {
     cat >>${config_ymlfile} <<EOF
                 Provider: "namesilo" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
                 DNSEnv: # DNS ENV option used by DNS provider
@@ -169,7 +170,7 @@ config_Provider_namesilo(){
 EOF
 }
 
-config_dns_Provider(){
+config_dns_Provider() {
     # acme的配置用法：https://github.com/acmesh-official/acme.sh/wiki/dnsapi
     if [[ ${dns_Provider} == "dnspod" ]]; then
         dns_Provider_acme="dns_dp"
@@ -193,7 +194,7 @@ config_dns_Provider(){
     fi
 }
 
-config_XrayR_dns(){
+config_XrayR_dns() {
     cat >${config_dnsfile} <<EOF
 {
     "servers": [
@@ -206,7 +207,7 @@ config_XrayR_dns(){
 EOF
 }
 # 生成本地审计规则rulelist
-config_audit(){
+config_audit() {
     cat >${config_rulefile} <<EOF
 (.*\.||)(gov|12377|12315|12321)\.(org|com|cn|net)
 (api|ps|sv|offnavi|newvector|ulog\.imap|newloc)(\.map|)\.(baidu|n\.shifen)\.(com|cn)
@@ -219,10 +220,10 @@ config_audit(){
 (.*\.||)(metatrader4|metatrader5|mql5)\.(org|com|net)
 (.*\.||)(2miners|666pool|91pool|atticpool|anomp|aapool|antpool|globalpool|miningpoolhub|blackpool|blockmasters|btchd|bitminter|bitcoin|bhdpool|bginpool|baimin|bi-chi|bohemianpool|bixin|bwpool|btcguild|batpool|bw|btcc|btc|btc|bitfury|bitclubnetwork|beepool|coinhive|chainpool|connectbtc|cybtc|canoepool|cryptograben|cryptonotepool|coinotron|dashcoinpool|dxpool|dwarfpool|dpool|dpool|dmpools|everstake|epool|ethpool|ethfans|easy2mine|ethermine|extremepool|firepool|fir|fkpool|flypool|f3pool|gridcash|gath3r|grin-pool|grinmint|c3pool|gbminers|get.bi-chi|globalpool|give-me-ltc|yminer|stmining|hashquark|hashrabbit|hummerpool|hdpool|h-pool|hashvault|hpool|huobipool)\.(org|com|cn|net|cc|co|io|one|pro|info|im)
 EOF
-# Poseidon规则配置需「regexp:」语句打头
+    # Poseidon规则配置需「regexp:」语句打头
 }
 # 生成邮箱账号
-config_Email(){
+config_Email() {
     if [[ -z ${Cert_Domain} ]]; then
         read -p "请输入解析到本机的域名:" Cert_Domain
     fi
@@ -232,12 +233,12 @@ config_Email(){
     Cert_Email=admin@${Cert_Domain#*\.}
 }
 
-config_GetNodeInfo(){
-# 只做了v2board适配，需指定Node_ID，Node_Type，Cert_Domain，方便对接caddy2
-# "V2ray":"${Api_Host}/api/v1/server/Deepbwork/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
-# "Trojan":"${Api_Host}/api/v1/server/TrojanTidalab/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
+config_GetNodeInfo() {
+    # 只做了v2board适配，需指定Node_ID，Node_Type，Cert_Domain，方便对接caddy2
+    # "V2ray":"${Api_Host}/api/v1/server/Deepbwork/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
+    # "Trojan":"${Api_Host}/api/v1/server/TrojanTidalab/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
     if [[ "$Node_Type" == "V2ray" ]]; then
-    # 获取后端inbound.{port,protocol，streamSettings.{security,wsSettings.path}}
+        # 获取后端inbound.{port,protocol，streamSettings.{security,wsSettings.path}}
         NodeInfo_url="${Api_Host}/api/v1/server/Deepbwork/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
         NodeInfo_json=$(curl "${NodeInfo_url}" | jq '.inbound')
         # 监听端口：443，回落或与caddy对接
@@ -251,7 +252,7 @@ config_GetNodeInfo(){
         # 分流路径，回落对接用
         network_path=$(echo ${NodeInfo_json} | jq -r '.streamSettings.wsSettings.path')
     elif [[ "$Node_Type" == "Trojan" ]]; then
-    # 获取后端local_port，remote_port，remote_addr，ssl.sni
+        # 获取后端local_port，remote_port，remote_addr，ssl.sni
         NodeInfo_url="${Api_Host}/api/v1/server/TrojanTidalab/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
         NodeInfo_json=$(curl "${NodeInfo_url}" | jq '.')
         # 监听端口：443，回落或与caddy对接
@@ -271,13 +272,12 @@ config_GetNodeInfo(){
     echo -e "从 ${green}${Api_Host}${plain} 获取 ${green}${Node_ID}${plain} 号 ${green}${Node_Type}${plain} 节点信息完成"
 }
 
-
 # Pre-installation settings
-config_set(){
+config_set() {
     echo
     echo -e "[1] SSpanel \t [2] V2board"
     read -p "前端面板类型（默认V2board）:" panel_num
-        [ -z "${panel_num}" ] && panel_num="2"
+    [ -z "${panel_num}" ] && panel_num="2"
     if [ "$panel_num" == "1" ]; then
         Panel_Type="SSpanel"
     elif [ "$panel_num" == "2" ]; then
@@ -288,13 +288,13 @@ config_set(){
     fi
 
     read -p "前端面板认证域名(包括http[s]://):" Api_Host
-        [ -z "${Api_Host}" ] && Api_Host="http://1.1.1.1"
+    [ -z "${Api_Host}" ] && Api_Host="http://1.1.1.1"
     read -p "前端面板的apikey:" Api_Key
-        [ -z "${Api_Key}" ] && Api_Key="abc123"
-    
+    [ -z "${Api_Key}" ] && Api_Key="abc123"
+
     echo -e "[1] V2ray \t [2] Trojan \t [3] Shadowsocks"
     read -p "节点类型（默认V2ray）:" node_num
-        [ -z "${node_num}" ] && node_num="1"
+    [ -z "${node_num}" ] && node_num="1"
     if [[ "$node_num" == "1" ]]; then
         Node_Type="V2ray"
     elif [[ "$node_num" == "2" ]]; then
@@ -305,10 +305,10 @@ config_set(){
         echo "type error, please try again"
         exit
     fi
-    
+
     read -p "前端节点信息里面的节点ID:" Node_ID
-        [ -z "${Node_ID}" ] && Node_ID=1
-    
+    [ -z "${Node_ID}" ] && Node_ID=1
+
     read -p "请输入解析到本机的域名:" Cert_Domain
     config_Email
     # 从面板获取节点关键信息
@@ -326,10 +326,10 @@ config_set(){
     echo -e "\t安全加密「tls」：${green}${network_security}${plain}"
     echo -e "\t传输协议「network」：${green}${network_protocol}${plain}"
     if [[ "$Node_Type" == "V2ray" ]]; then
-        echo -e "\t分流路径「path」：${green}${network_path}${plain}"       
+        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
     fi
     if [[ "$Node_Type" == "Trojan" ]]; then
-       echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
+        echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
     fi
     echo
     echo -e "请确认以上信息是否正确，如果不正确请按${yellow} Ctrl+C ${plain}取消重来"
@@ -367,14 +367,14 @@ config_set(){
     #     exit
     # fi
 
-    install_Caddy_manual
+    install_Caddy
 
     echo -e "========================================================="
     echo -e "1. Caddy:{80,443} --> XrayR"
     echo -e "2. XrayR:{80,443} --> Caddy"
     echo -e "========================================================="
     read -p "请选择方案组合（默认 1）：" rules_num
-        [ -z "${rules_num}" ] && rules_num="1"
+    [ -z "${rules_num}" ] && rules_num="1"
     if [[ "$rules_num" == "1" ]]; then
         echo
         echo -e "由Caddy或Acme管理ssl证书，关闭XrayR证书管理功能"
@@ -410,8 +410,8 @@ config_set(){
         if [[ "$is_tls" == "1" ]]; then
             echo -e "[1] http \t [2] file \t [3] dns"
             read -p "证书认证模式（默认http）:" Cert_Mode_num
-                [ -z "${Cert_Mode_num}" ] && Cert_Mode_num="1"
-            if  [[ "${Cert_Mode_num}" == "2" ]]; then
+            [ -z "${Cert_Mode_num}" ] && Cert_Mode_num="1"
+            if [[ "${Cert_Mode_num}" == "2" ]]; then
                 Cert_Mode="file"
             elif [[ "${Cert_Mode_num}" == "3" ]]; then
                 Cert_Mode="dns"
@@ -438,7 +438,7 @@ config_set(){
         Enable_Fallback="false"
     fi
 }
-config_modify(){
+config_modify() {
     config_Cert
     # V2board启用本地审计
     if [[ "${Panel_Type}" == "V2board" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
@@ -464,7 +464,7 @@ config_modify(){
 }
 
 # 0: running, 1: not running, 2: not installed
-check_status(){
+check_status() {
     if [[ ! -f /etc/systemd/system/XrayR.service ]]; then
         return 2
     fi
@@ -476,10 +476,10 @@ check_status(){
     fi
 }
 
-install_Caddy_manual(){
+install_Caddy() {
     # 官网选的 CF+dnspod+alidns 插件下载链接，可用"caddy list-modules"命令查看
     caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod"
-    wget -N  --no-check-certificate -O "/usr/bin/caddy" ${caddy_url}
+    wget -N --no-check-certificate -O "/usr/bin/caddy" ${caddy_url}
     chmod +x "/usr/bin/caddy"
     groupadd --system caddy
     useradd --system \
@@ -491,33 +491,21 @@ install_Caddy_manual(){
         caddy
 
     caddy_service="https://raw.githubusercontent.com/caddyserver/dist/master/init/caddy.service"
-    wget  -N  --no-check-certificate -O "/etc/systemd/system/caddy.service" ${caddy_service}
+    wget -N --no-check-certificate -O "/etc/systemd/system/caddy.service" ${caddy_service}
     echo
     echo -e "${green}Caddy2 安装完成${plain}"
 }
-install_Caddy(){
-    if [[ ${os} == "debian" ]]; then
-        apt install -y debian-keyring debian-archive-keyring apt-transport-https
-        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | tee /etc/apt/trusted.gpg.d/caddy-stable.asc
-        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-        apt update && install -y caddy
-    else
-        yum -y install yum-plugin-copr
-        yum copr enable @caddy/caddy
-        yum -y install caddy
-    fi
-}
-install_www(){
+install_www() {
     # 放个小游戏到/srv/www
     wget --no-check-certificate -O www.zip $caddy_www
-	unzip -o www.zip -d /srv/ && rm -f www.zip
+    unzip -o www.zip -d /srv/ && rm -f www.zip
     systemctl daemon-reload && systemctl enable caddy
     echo
     echo -e "${green}Caddy2 安装完成${plain}"
 }
-config_caddy(){
-# keys：domain，port，tls，path/sni
-# caddy监控443和80，通过path分流到后端，所以后端服务不能设置这两个端口
+config_caddy() {
+    # keys：domain，port，tls，path/sni
+    # caddy监控443和80，通过path分流到后端，所以后端服务不能设置这两个端口
     if [[ ! -d "/etc/caddy" ]]; then
         mkdir -p /etc/caddy
     fi
@@ -543,7 +531,7 @@ EOF
     systemctl restart caddy
 }
 
-tls_acme_install(){
+tls_acme_install() {
     if [[ ! -f "~/.acme.sh/acme.sh" ]]; then
         echo -e "${green}开始安装 acme${plain}"
         curl https://get.acme.sh | sh
@@ -554,35 +542,35 @@ tls_acme_install(){
     # 开启自动升级
     acme.sh --upgrade --auto-upgrade
 }
-tls_acme_register(){
+tls_acme_register() {
     # https://github.com/acmesh-official/acme.sh/wiki/Server
-	acme.sh --register-account -m ${Cert_Email} --server zerossl
+    acme.sh --register-account -m ${Cert_Email} --server zerossl
     # acme.sh --set-default-ca  --server letsencrypt
 }
-tls_acme_obtain(){
-	# 使用 acme.sh 生成证书
+tls_acme_obtain() {
+    # 使用 acme.sh 生成证书
     if [[ ${Cert_Domain##*.} =~ (cf|ga|gq|ml|tk) ]]; then
-    echo "cloudflare不支持这些域名api方式管理：.cf, .ga, .gq, .ml, .tk"
-    echo -e "使用http方式申请"
-    	acme.sh --issue -d ${Cert_Domain} --httpport 6969 --standalone -k ec-256
+        echo "cloudflare不支持这些域名api方式管理：.cf, .ga, .gq, .ml, .tk"
+        echo -e "使用http方式申请"
+        acme.sh --issue -d ${Cert_Domain} --httpport 6969 --standalone -k ec-256
     else
         config_DNS
-    	acme.sh --issue -d ${Cert_Domain} --dns ${dns_Provider_acme} -k ec-256
+        acme.sh --issue -d ${Cert_Domain} --dns ${dns_Provider_acme} -k ec-256
     fi
-	tls_acme_deploy
+    tls_acme_deploy
 }
-tls_acme_deploy(){
-	if [ ! -d "${tls_path}" ]; then
-		mkdir -p ${tls_path}
-	fi
-	acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc
-	XrayR restart
-	# 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
-	sed -i '/^.*acme.*\.cert\/.*/d'  /var/spool/cron/root
-	echo "0 0 1 */2 * acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc" >> /var/spool/cron/root
+tls_acme_deploy() {
+    if [ ! -d "${tls_path}" ]; then
+        mkdir -p ${tls_path}
+    fi
+    acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc
+    XrayR restart
+    # 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
+    sed -i '/^.*acme.*\.cert\/.*/d' /var/spool/cron/root
+    echo "0 0 1 */2 * acme.sh --installcert -d ${Cert_Domain} --fullchain-file ${tls_path}/${Cert_Domain}.crt --key-file ${tls_path}/${Cert_Domain}.key --ecc" >>/var/spool/cron/root
 }
 
-install_XrayR(){
+install_XrayR() {
     echo
     echo -e "${green}开始安装 XrayR${plain}"
     if [[ -e /usr/local/XrayR/ ]]; then
@@ -590,9 +578,9 @@ install_XrayR(){
     fi
 
     mkdir -p /usr/local/XrayR/
-	cd /usr/local/XrayR/
+    cd /usr/local/XrayR/
 
-    if  [[ $# == 0 ]] ;then
+    if [[ $# == 0 ]]; then
         last_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ -z "$last_version" ]]; then
             echo -e "获取最新版本失败，使用默认版本"
@@ -626,7 +614,7 @@ install_XrayR(){
     echo -e "${green}XrayR ${last_version}${plain} 安装完成，已设置开机自启"
     mkdir -p /etc/XrayR/
     cp geoip.dat /etc/XrayR/
-    cp geosite.dat /etc/XrayR/ 
+    cp geosite.dat /etc/XrayR/
 
     if [[ ! -f /etc/XrayR/dns.json ]]; then
         config_XrayR_dns
@@ -667,61 +655,60 @@ install_XrayR(){
     pause_press
 }
 
-XrayR_tool(){
+XrayR_tool() {
     echo
     if [[ ! -f usr/bin/XrayR ]]; then
         curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/XrayR.sh
-        chmod +x /usr/bin/XrayR      
+        chmod +x /usr/bin/XrayR
     fi
 }
 
 # 菜单
-menu(){
+menu() {
     echo
-	echo -e "======================================"
-	echo -e "	Author: 金将军"
-	echo -e "	Version: 2.0.0"
-	echo -e "======================================"
-	echo
-	echo -e "\t1.安装XrayR"
-	echo -e "\t2.新增nodes"
-	echo -e "\t3.安装acme"
-	echo -e "\t4.安装Caddy2"
-	echo -e "\t9.卸载XrayR"
-	echo -e "\t0.退出\n"
-	echo -en "\t请输入数字选项: "
-	# read -p "请输入数字选项: " menu_Num
-	read -n 1 option
+    echo -e "======================================"
+    echo -e "	Author: 金将军"
+    echo -e "	Version: 2.0.0"
+    echo -e "======================================"
+    echo
+    echo -e "\t1.安装XrayR"
+    echo -e "\t2.新增nodes"
+    echo -e "\t3.安装acme"
+    echo -e "\t4.安装Caddy2"
+    echo -e "\t9.卸载XrayR"
+    echo -e "\t0.退出\n"
+    echo -en "\t请输入数字选项: "
+    # read -p "请输入数字选项: " menu_Num
+    read -n 1 option
 }
-while [ 1 ]
-do
-	menu
-	# case "$menu_Num" in
-	case "$option" in
-		0)
-		break
-		;;
-		1)
-		install_XrayR $1
-		;;
-		2)
+while [ 1 ]; do
+    menu
+    # case "$menu_Num" in
+    case "$option" in
+    0)
+        break
+        ;;
+    1)
+        install_XrayR $1
+        ;;
+    2)
         config_set
-		config_nodes && config_modify
+        config_nodes && config_modify
         systemctl restart XrayR && systemctl -l status XrayR
-		;;
-		3)
-		tls_acme_install
-		;;
-		4)
-		install_Caddy
-		;;
-		9)
+        ;;
+    3)
+        tls_acme_install
+        ;;
+    4)
+        install_Caddy
+        ;;
+    9)
         XrayR_tool
-		XrayR uninstall
-		;;
-		*)
-		echo "请输入正确数字:"
-		;;
-	esac
+        XrayR uninstall
+        ;;
+    *)
+        echo "请输入正确数字:"
+        ;;
+    esac
 done
 clear
