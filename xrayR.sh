@@ -367,14 +367,18 @@ config_set() {
     #     exit
     # fi
 
-    install_Caddy
-
     echo -e "========================================================="
     echo -e "1. Caddy:{80,443} --> XrayR"
     echo -e "2. XrayR:{80,443} --> Caddy"
+    echo -e "3. 只安装 XrayR"
     echo -e "========================================================="
     read -p "请选择方案组合（默认 1）：" rules_num
     [ -z "${rules_num}" ] && rules_num="1"
+
+    if [[ "$rules_num" == "1" || "$rules_num" == "2" ]]; then
+        install_Caddy
+    fi
+
     if [[ "$rules_num" == "1" ]]; then
         echo
         echo -e "由Caddy或Acme管理ssl证书，关闭XrayR证书管理功能"
@@ -384,16 +388,15 @@ config_set() {
             exit 2
         fi
         config_caddy
-    elif [[ "$rules_num" == "2" ]]; then
+    else
+        echo
+        echo -e "由XrayR管理ssl证书"
         # 是否启用tls
         if [[ ${network_security} == "tls" || ${network_security} == "xtls" ]]; then
             is_tls="1"
         else
             is_tls="0"
         fi
-    else
-        echo "type error, please try again"
-        exit
     fi
 
     if [[ ${network_security} == "xtls" ]]; then
