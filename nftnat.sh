@@ -211,14 +211,12 @@ menu() {
   echo -e "\t3.删除现存转发"
   echo -e "\t4.查看现存配置"
   echo -e "\t0.退出\n"
-  echo -en "\t请输入数字选项: "
-  # read -p "请输入数字选项: " menu_Num
-  read -n 1 option
+  echo
+  read -ep "请输入数字选项: " menu_Num
 }
 while [ 1 ]; do
   menu
-  # case "$menu_Num" in
-  case "$option" in
+  case "$menu_Num" in
   0)
     break
     ;;

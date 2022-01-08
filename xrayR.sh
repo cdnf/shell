@@ -14,7 +14,6 @@ config_dnsfile="/etc/XrayR/dns.json"
 tls_path="/etc/XrayR/cert/certificates"
 config_Caddyfile="/etc/caddy/Caddyfile"
 caddy_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
-stable_version="v0.7.2"
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
@@ -583,27 +582,30 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    if [[ $# == 0 ]]; then
-        last_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ -z "$last_version" ]]; then
-            echo -e "获取最新版本失败，使用默认版本"
-            last_version="${stable_version}"
-        fi
-        echo -e "开始安装 XrayR 版本：${last_version}"
-        wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-64.zip
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR 失败，请确保你的服务器能够下载 Github 的文件${plain}"
-            exit 1
-        fi
+    stable_version="v0.7.4"
+    latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [[ -z "$latest_version" ]]; then
+        latest_version="获取失败，请勿选择"
+    fi
+    echo
+    echo -e "[1] 最新版：${latest_version} \t [2] 默认版本：${stable_version}"
+    read -p "选择或输入要安装版本（默认 ${stable_version}）:" XrayR_version
+        [ -z "${XrayR_version}" ] && XrayR_version="2"
+    if [[ "$XrayR_version" == "1" ]]; then
+        install_version="${latest_version}"
+    elif [[ "$XrayR_version" == "2" ]]; then
+        install_version="${stable_version}"
     else
-        last_version=$1
-        url="https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-64.zip"
-        echo -e "开始安装 XrayR v$1"
-        wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${url}
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR v$1 失败，请确保此版本存在${plain}"
-            exit 1
-        fi
+        install_version="${XrayR_version}"
+    fi
+    
+    echo
+    echo -e "开始安装 XrayR 版本：${install_version}"
+    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${install_version}/XrayR-linux-64.zip"
+    wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
+    if [[ $? -ne 0 ]]; then
+        echo -e "${red}下载 XrayR ${install_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
+        exit 1
     fi
 
     unzip XrayR-linux-64.zip
@@ -671,7 +673,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 2.0.0"
+    echo -e "	Version: 2.0.1"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
@@ -680,14 +682,12 @@ menu() {
     echo -e "\t4.安装Caddy2"
     echo -e "\t9.卸载XrayR"
     echo -e "\t0.退出\n"
-    echo -en "\t请输入数字选项: "
-    # read -p "请输入数字选项: " menu_Num
-    read -n 1 option
+    echo
+    read -ep "请输入数字选项: " menu_Num
 }
 while [ 1 ]; do
     menu
-    # case "$menu_Num" in
-    case "$option" in
+    case "$menu_Num" in
     0)
         break
         ;;
