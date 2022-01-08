@@ -452,7 +452,9 @@ config_modify() {
     fi
     if [[ "$rules_num" == "2" ]]; then
         echo
-        echo -e "由XrayR管理ssl证书"
+        echo -e "由XrayR管理ssl证书，注销Caddy申请证书功能"
+        sed -i "s|tls |#tls |" ${config_Caddyfile}
+        systemctl restart caddy
     elif [[ "${dns_Provider}" == "dnspod" ]]; then
         config_Provider_dnspod
     elif [[ "${dns_Provider}" == "namesilo" ]]; then
