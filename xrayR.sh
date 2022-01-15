@@ -73,7 +73,21 @@ pause_press() {
         char=$(get_char)
     fi
 }
-
+get_Swap(){
+    swap_now=$(swapon --show)
+    if [[ -z $swap_now ]]; then
+        fallocate -l 1G /swap
+        chmod 600 /swap
+        mkswap /swap
+        swapon /swap
+        sed -i "/^\/swap/d" /etc/fstab
+        echo "/swap swap swap defaults 0 0" >>/etc/fstab
+    else
+        echo
+        echo -e "交换分区已存在，什么都不做"
+    fi
+    swapon --show
+}
 # Writing json
 # 配置文件说明：https://crackair.gitbook.io/xrayr-project/xrayr-pei-zhi-wen-jian-shuo-ming/config
 config_init() {
@@ -675,13 +689,14 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 2.0.1"
+    echo -e "	Version: 2.1.1"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
     echo -e "\t2.新增nodes"
     echo -e "\t3.安装acme"
     echo -e "\t4.安装Caddy2"
+    echo -e "\t5.开启系统Swap"
     echo -e "\t9.卸载XrayR"
     echo -e "\t0.退出\n"
     echo
@@ -706,6 +721,9 @@ while [ 1 ]; do
         ;;
     4)
         install_Caddy
+        ;;
+    5)
+        get_Swap
         ;;
     9)
         XrayR_tool
