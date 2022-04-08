@@ -98,6 +98,7 @@ Log:
     ErrorPath: # ./error.log
 DnsConfigPath: # ./dns.json Path to dns config, check https://xtls.github.io/config/base/dns/ for help
 RouteConfigPath: # ./route.json # Path to route config, check https://xtls.github.io/config/base/route/ for help
+InboundConfigPath: # /etc/XrayR/custom_inbound.json # Path to custom inbound config, check https://xtls.github.io/config/inbound.html for help
 OutboundConfigPath: # ./custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/base/outbound/ for help
 ConnetionConfig:
     Handshake: 4 # Handshake time limit, Second
@@ -224,7 +225,7 @@ config_audit() {
     cat >${config_rulefile} <<EOF
 (.*\.||)(gov|12377|12315|12321)\.(org|com|cn|net)
 (api|ps|sv|offnavi|newvector|ulog\.imap|newloc)(\.map|)\.(baidu|n\.shifen)\.(com|cn)
-(.*\.||)(360|so|qq|163|sohu|sogoucdn|sogou|uc|58|taobao|qpic)\.(org|com|net|cn)
+(.*\.||)(360|so|qq|163|sohu|sogoucdn|sogou|uc|58|taobao|qpic|weibo|toutiao)\.(org|com|net|cn)
 (.*\.||)(dafahao|minghui|dongtaiwang|epochtimes|ntdtv|falundafa|wujieliulan|zhengjian)\.(org|com|net)
 (.*\.||)(shenzhoufilm|secretchina|renminbao|aboluowang|mhradio|guangming|zhengwunet|soundofhope|yuanming|zhuichaguoji|fgmtv|xinsheng|shenyunperformingarts|epochweekly|tuidang|shenyun|falundata|bannedbook)\.(org|com|net)
 (.*\.||)(icbc|ccb|boc|bankcomm|abchina|cmbchina|psbc|cebbank|cmbc|pingan|spdb|citicbank|cib|hxb|bankofbeijing|hsbank|tccb|4001961200|bosc|hkbchina|njcb|nbcb|lj-bank|bjrcb|jsbchina|gzcb|cqcbank|czbank|hzbank|srcb|cbhb|cqrcb|grcbank|qdccb|bocd|hrbcb|jlbank|bankofdl|qlbchina|dongguanbank|cscb|hebbank|drcbank|zzbank|bsb|xmccb|hljrcc|jxnxs|gsrcu|fjnx|sxnxs|gx966888|gx966888|zj96596|hnnxs|ahrcu|shanxinj|hainanbank|scrcu|gdrcu|hbxh|ynrcc|lnrcc|nmgnxs|hebnx|jlnls|js96008|hnnx|sdnxs)\.(org|com|net|cn|bank)
@@ -590,7 +591,7 @@ tls_acme_deploy() {
 
 install_XrayR() {
     echo
-    echo -e "${green}开始安装 XrayR${plain}"
+    echo -e "${green}准备安装 XrayR${plain}"
     if [[ -e /usr/local/XrayR/ ]]; then
         rm -rf /usr/local/XrayR/
     fi
@@ -598,29 +599,21 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    stable_version="v0.7.4"
     latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -z "$latest_version" ]]; then
-        latest_version="获取失败，请勿选择"
+    if [[ -z "${latest_version}" ]]; then
+        latest_version="获取在线版本失败，请检查网络连接"
+        exit 1
     fi
     echo
-    echo -e "[1] 最新版：${latest_version} \t [2] 默认版本：${stable_version}"
-    read -p "选择或输入要安装版本（默认 ${stable_version}）:" XrayR_version
-        [ -z "${XrayR_version}" ] && XrayR_version="2"
-    if [[ "$XrayR_version" == "1" ]]; then
-        install_version="${latest_version}"
-    elif [[ "$XrayR_version" == "2" ]]; then
-        install_version="${stable_version}"
-    else
-        install_version="${XrayR_version}"
-    fi
+    read -p "输入要安装版本（默认：${latest_version}）:" XrayR_version
+        [ -z "${XrayR_version}" ] && XrayR_version="${latest_version}"
     
     echo
-    echo -e "开始安装 XrayR 版本：${install_version}"
-    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${install_version}/XrayR-linux-64.zip"
+    echo -e "开始安装 XrayR 版本：${XrayR_version}"
+    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
-        echo -e "${red}下载 XrayR ${install_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
+        echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
         exit 1
     fi
 
@@ -632,7 +625,7 @@ install_XrayR() {
     wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
     systemctl daemon-reload && systemctl stop XrayR
     systemctl enable XrayR
-    echo -e "${green}XrayR ${last_version}${plain} 安装完成，已设置开机自启"
+    echo -e "${green}XrayR ${XrayR_version}${plain} 安装完成，已设置开机自启"
     mkdir -p /etc/XrayR/
     cp geoip.dat /etc/XrayR/
     cp geosite.dat /etc/XrayR/
@@ -689,7 +682,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 2.1.1"
+    echo -e "	Version: 2.1.4"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
