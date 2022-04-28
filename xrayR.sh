@@ -273,8 +273,8 @@ config_GetNodeInfo() {
         inbound_port=$(echo ${NodeInfo_json} | jq -r '.local_port')
         # 使用协议：vmess|vless|Trojan，决定是否启用xtls等
         inbound_protocol="Trojan"
-        # 加密方式：tls|xtls|none
-        network_security=$(echo ${NodeInfo_json} | jq -r '.ssl')
+        # 加密方式：tls|xtls|none，Trojan强制tls
+        network_security="tls"
         # 传输协议：tcp|grpc|ws才对接caddy,v2board默认只有tcp
         network_protocol="tcp"
         # 分流serverName，回落对接用
@@ -384,7 +384,7 @@ config_set() {
     echo -e "========================================================="
     echo -e "1. Caddy:{80,443} --> XrayR"
     echo -e "2. XrayR:{80,443} --> Caddy"
-    echo -e "3. 只安装 XrayR"
+    echo -e "3. 安装 XrayR + acme"
     echo -e "========================================================="
     read -p "请选择方案组合（默认 1）：" rules_num
     [ -z "${rules_num}" ] && rules_num="1"
@@ -405,8 +405,9 @@ config_set() {
     else
         echo
         echo -e "由XrayR管理ssl证书"
+        tls_acme_install
         # 是否启用tls
-        if [[ ${network_security} == "tls" || ${network_security} == "xtls" ]]; then
+        if [[ ${network_security} ]]; then
             is_tls="1"
         else
             is_tls="0"
@@ -599,7 +600,7 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    latest_version=$(curl -Ls "https://api.github.com/repos/cdnf/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ -z "${latest_version}" ]]; then
         latest_version="获取在线版本失败，请检查网络连接"
         exit 1
@@ -610,7 +611,7 @@ install_XrayR() {
     
     echo
     echo -e "开始安装 XrayR 版本：${XrayR_version}"
-    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
+    XrayR_url="https://github.com/cdnf/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
@@ -621,7 +622,7 @@ install_XrayR() {
     rm -f XrayR-linux-64.zip
     chmod +x XrayR
     rm -f /etc/systemd/system/XrayR.service
-    file="https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.service"
+    file="https://github.com/cdnf/XrayR-release/raw/master/XrayR.service"
     wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
     systemctl daemon-reload && systemctl stop XrayR
     systemctl enable XrayR
@@ -639,7 +640,7 @@ install_XrayR() {
         config_init && config_nodes
         config_modify
         echo
-        echo -e "全新安装完成，更多内容请见：https://github.com/XrayR-project/XrayR"
+        echo -e "全新安装完成，更多内容请见：https://crackair.gitbook.io/xrayr-project/"
     else
         systemctl start XrayR
         sleep 2
@@ -650,7 +651,7 @@ install_XrayR() {
             echo -e "${green}XrayR 重启成功${plain}"
         else
             echo
-            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://github.com/XrayR-project/XrayR/wiki${plain}"
+            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/${plain}"
         fi
     fi
     # 安装管理工具
@@ -672,7 +673,7 @@ install_XrayR() {
 XrayR_tool() {
     echo
     if [[ ! -f usr/bin/XrayR ]]; then
-        curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/XrayR.sh
+        curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/cdnf/XrayR-release/master/XrayR.sh
         chmod +x /usr/bin/XrayR
     fi
 }
@@ -682,7 +683,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 2.1.4"
+    echo -e "	Version: 2.2.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
