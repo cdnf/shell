@@ -600,7 +600,7 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    latest_version=$(curl -Ls "https://api.github.com/repos/cdnf/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    latest_version=$(curl -Ls "https://api.github.com/repos/Misaka-blog/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ -z "${latest_version}" ]]; then
         latest_version="获取在线版本失败，请检查网络连接"
         exit 1
@@ -611,7 +611,7 @@ install_XrayR() {
     
     echo
     echo -e "开始安装 XrayR 版本：${XrayR_version}"
-    XrayR_url="https://github.com/cdnf/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
+    XrayR_url="https://github.com/Misaka-blog/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
