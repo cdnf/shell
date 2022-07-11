@@ -11,7 +11,7 @@ cur_dir=$(pwd)
 config_ymlfile="/etc/XrayR/config.yml"
 config_rulefile="/etc/XrayR/rulelist"
 config_dnsfile="/etc/XrayR/dns.json"
-tls_path="/etc/XrayR/cert/certificates"
+tls_path="~/.cert"
 config_Caddyfile="/etc/caddy/Caddyfile"
 caddy_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 # check root
@@ -144,7 +144,7 @@ config_nodes() {
                 -
                     SNI: # TLS SNI(Server Name Indication), Empty for any
                     Path: # HTTP PATH, Empty for any
-                    Dest: "www.amazon.com:80" # Required, Destination of fallback, check https://xtls.github.io/config/fallback/ for details.
+                    Dest: "www.amazon.com:80" # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
                     ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
 EOF
         echo -e "节点配置已写入 ${green}${config_ymlfile}${plain}"
@@ -156,7 +156,7 @@ config_Cert() {
                 CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "${Cert_Domain}" # Domain to cert
                 CertFile: "${tls_path}/${Cert_Domain}.crt" # Provided if the CertMode is file
-                KeyFile: "${tls_path}/${Cert_Domain}.key" # http filepath is /etc/XrayR/cert/certificates/
+                KeyFile: "${tls_path}/${Cert_Domain}.key" # http default in /etc/XrayR/cert/certificates/
                 Email: "${Cert_Email}"
 EOF
 }
@@ -600,7 +600,7 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    latest_version=$(curl -Ls "https://api.github.com/repos/Misaka-blog/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    latest_version=$(curl -Ls "https://api.github.com/repos/newxrayr/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ -z "${latest_version}" ]]; then
         latest_version="获取在线版本失败，请检查网络连接"
         exit 1
@@ -611,7 +611,7 @@ install_XrayR() {
     
     echo
     echo -e "开始安装 XrayR 版本：${XrayR_version}"
-    XrayR_url="https://github.com/Misaka-blog/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
+    XrayR_url="https://github.com/newxrayr/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
