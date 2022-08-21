@@ -717,7 +717,7 @@ EOF
 # https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
 dns_update() {
     CF_TOKEN_DNS=${CF_Token}
-    CFZONE_NAME=${Domain_Main}
+    CFZONE_NAME=${Domain_SNI#*\.}
     CFRECORD_NAME=${Domain_SNI}
     # If required settings are missing just exit
     if [ "$CF_TOKEN_DNS" = "" ]; then
@@ -740,7 +740,8 @@ dns_update() {
         curl -X DELETE "https://api.cloudflare.com/client/v4/zones/$CFZONE_ID/dns_records/$CFRECORD_ID_A" \
             -H "Authorization: Bearer $CF_TOKEN_DNS" \
             -H "Content-Type: application/json"
-    elif [[ -n ${CFRECORD_ID_AAAA} ]]; then
+    fi
+    if [[ -n ${CFRECORD_ID_AAAA} ]]; then
         curl -X DELETE "https://api.cloudflare.com/client/v4/zones/$CFZONE_ID/dns_records/$CFRECORD_ID_AAAA" \
             -H "Authorization: Bearer $CF_TOKEN_DNS" \
             -H "Content-Type: application/json"
@@ -755,25 +756,31 @@ dns_update() {
             -H "Authorization: Bearer $CF_TOKEN_DNS" \
             -H "Content-Type: application/json" \
             --data "{\"id\":\"$CFZONE_ID\",\"type\":\"A\",\"name\":\"$CFRECORD_NAME\",\"content\":\"$wan_ip_v4\", \"ttl\":60}")
-    elif [[ -n ${wan_ip_v6} ]]; then
+        if [ "$RESPONSE_v4" != "${RESPONSE_v4%success*}" ] && [ "$(echo $RESPONSE_v4 | grep "\"success\":true")" != "" ]; then
+            echo "Updated A Record succesfuly!"
+        else
+            echo 'Something went wrong :('
+            echo "Response: $RESPONSE_v4"
+        fi
+    else
+        echo "There is no IPV4 for this server, please check it"
+    fi
+    if [[ -n ${wan_ip_v6} ]]; then
         echo "WanIP v6 is: ${wan_ip_v6}"
         RESPONSE_v6=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CFZONE_ID/dns_records/" \
             -H "Authorization: Bearer $CF_TOKEN_DNS" \
             -H "Content-Type: application/json" \
             --data "{\"id\":\"$CFZONE_ID\",\"type\":\"AAAA\",\"name\":\"$CFRECORD_NAME\",\"content\":\"$wan_ip_v6\", \"ttl\":60}")
+        if [ "$RESPONSE_v6" != "${RESPONSE_v6%success*}" ] && [ "$(echo $RESPONSE_v6 | grep "\"success\":true")" != "" ]; then
+            echo "Updated AAAA Record succesfuly!"
+        else
+            echo 'Something went wrong :('
+            echo "Response: $RESPONSE_v6"
+        fi
     else
-        echo "There is no IP for this server, please check it"
+        echo "There is no IPV6 for this server, please check it"
     fi
 
-    if [ "$RESPONSE_v4" != "${RESPONSE_v4%success*}" ] && [ "$(echo $RESPONSE_v4 | grep "\"success\":true")" != "" ]; then
-        echo "Updated A Record succesfuly!"
-    elif [ "$RESPONSE_v6" != "${RESPONSE_v6%success*}" ] && [ "$(echo $RESPONSE_v6 | grep "\"success\":true")" != "" ]; then
-        echo "Updated AAAA Record succesfuly!"
-    else
-        echo 'Something went wrong :('
-        echo "Response: $RESPONSE_v4"
-        echo "Response: $RESPONSE_v6"
-    fi
 }
 
 tls_acme_install() {
@@ -796,7 +803,8 @@ tls_acme_obtain() {
     # 使用 acme.sh 生成证书
     if [[ -z ${CF_Token} ]]; then
         config_dns_Provider
-    elif [[ -z ${Domain_SNI} ]]; then
+    fi
+    if [[ -z ${Domain_SNI} ]]; then
         # Domain_SNI=$(cat ${config_ymlfile} | grep CertDomain: | awk -F "\"" 'NR==1{print $2}')
         read -p "请输入要申请证书的域名：" Domain_SNI
     fi
@@ -940,7 +948,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 3.1.0"
+    echo -e "	Version: 3.1.1"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
