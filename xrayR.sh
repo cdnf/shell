@@ -129,7 +129,7 @@ config_nodes() {
             DisableUploadTraffic: false # Disable Upload Traffic to the panel
             DisableGetRule: false # Disable Get Rule from the panel
             DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks 
-            EnableProxyProtocol: true # Only works for WebSocket and TCP
+            EnableProxyProtocol: ${Enable_ProxyProtocol} # Only works for WebSocket and TCP
             EnableFallback: ${Enable_Fallback} # Only support for Trojan and Vless
             FallBackConfigs: # Support multiple fallbacks
                 -
@@ -330,6 +330,8 @@ config_set() {
     if [[ -z ${Domain_Main} ]]; then
         read -p "请输入欲使用的主域名，如 a.com：" Domain_Main
     fi
+    # 默认cloudflare解析域名和申请证书
+    CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
 
     read -p "前端节点信息里面的节点ID：" Node_ID
     [ -z "${Node_ID}" ] && Node_ID=1
@@ -391,8 +393,6 @@ config_set() {
     if [[ ${Check_All} == "N" ]]; then
         config_set
     fi
-    # 自动解析域名
-    dns_update
 
     # 规则组合：https://github.com/XTLS/Xray-examples
     # 规则组合：https://github.com/lxhao61/integrated-examples
@@ -433,7 +433,7 @@ config_set() {
         if [[ "$Node_Type" == "Shadowsocks" ]]; then
             config_caddy_Shadowsocks
         fi
-        systemctl restart caddy
+        caddy reload
     else
         systemctl disable caddy; systemctl stop caddy
         if [[ ! $(nginx -v) ]]; then
@@ -451,7 +451,7 @@ config_set() {
         if [[ "$Node_Type" == "Shadowsocks" ]]; then
             config_Nginx_Shadowsocks
         fi
-        systemctl restart nginx
+        nginx -s reload
     fi
 
     echo
@@ -468,36 +468,38 @@ config_set() {
     else
         Enable_Vless="false"
     fi
-    if [[ "$Node_Type" == "V2ray" || "$Node_Type" == "Trojan" ]]; then
-        if [[ "$is_tls" == "1" ]]; then
-            echo -e "[1] http \t [2] file \t [3] dns"
-            read -p "证书认证模式（默认http）:" Cert_Mode_num
-            [ -z "${Cert_Mode_num}" ] && Cert_Mode_num="1"
-            if [[ "${Cert_Mode_num}" == "2" ]]; then
-                Cert_Mode="file"
-            elif [[ "${Cert_Mode_num}" == "3" ]]; then
-                Cert_Mode="dns"
-                echo -e "[1] cloudflare \t [2] dnspod \t [3] namesilo"
-                read -p "DNS托管商:" dns_Provider_num
-                if [[ "${dns_Provider_num}" == "2" ]]; then
-                    dns_Provider="dnspod"
-                elif [[ "${dns_Provider_num}" == "3" ]]; then
-                    dns_Provider="namesilo"
-                else
-                    dns_Provider="cloudflare"
-                fi
-                config_dns_Provider
+    if [[ "$is_tls" == "1" ]]; then
+        echo -e "[1] http \t [2] file \t [3] dns"
+        read -p "证书认证模式（默认http）:" Cert_Mode_num
+        [ -z "${Cert_Mode_num}" ] && Cert_Mode_num="1"
+        if [[ "${Cert_Mode_num}" == "2" ]]; then
+            Cert_Mode="file"
+        elif [[ "${Cert_Mode_num}" == "3" ]]; then
+            Cert_Mode="dns"
+            echo -e "[1] cloudflare \t [2] dnspod \t [3] namesilo"
+            read -p "DNS托管商:" dns_Provider_num
+            if [[ "${dns_Provider_num}" == "2" ]]; then
+                dns_Provider="dnspod"
+            elif [[ "${dns_Provider_num}" == "3" ]]; then
+                dns_Provider="namesilo"
             else
-                Cert_Mode="http"
+                dns_Provider="cloudflare"
             fi
+            config_dns_Provider
         else
-            Cert_Mode="none"
+            Cert_Mode="http"
         fi
+    else
+        Cert_Mode="none"
     fi
-    if [[ "$Node_Type" == "Trojan" || "$Enable_Vless" == "true" ]]; then
+    if [[ "$Node_Type" == "Trojan" ]]; then
         Enable_Fallback="true"
+        # 解决Trojan无法用nginx路径分流
+        Enable_ProxyProtocol="true"
+        Cert_Mode="file"
     else
         Enable_Fallback="false"
+        Enable_ProxyProtocol="false"
     fi
 }
 config_modify() {
@@ -657,18 +659,19 @@ config_Nginx() {
 
 config_Nginx_Trojan() {
     sed -i "/default web;/ i \
-        ${Domain_SNI} proxy_trojan;" ${nginx_conf}
+        ${Domain_SNI} trojan;" ${nginx_conf}
+
+    # sed -i "/upstream web {/ i \
+    # upstream proxy_trojan {\\n\
+    #     server 127.0.0.1:10240;\\n\
+    # }\\n" ${nginx_conf}
+    # # 这里的 server 就是用来帮 Trojan 卸载代理协议的中间层
+    # sed -i "/upstream web {/ i \
+    #     server {\\n\
+    #     listen 10240 proxy_protocol;\\n\
+    #     proxy_pass  trojan;\\n\
+    #     }\\n" ${nginx_conf}
     sed -i "/upstream web {/ i \
-    upstream proxy_trojan {\\n\
-        server 127.0.0.1:10240;\\n\
-    }\\n" ${nginx_conf}
-    # 这里的 server 就是用来帮 Trojan 卸载代理协议的中间层
-    sed -i "/upstream web {/ i \
-        server {\\n\
-        listen 10240 proxy_protocol;\\n\
-        proxy_pass  trojan;\\n\
-        }\\n" ${nginx_conf}
-    sed -i "/proxy_trojan {/ i \
         upstream trojan {\\n\
         server 127.0.0.1:${inbound_port};\\n\
         }\\n" ${nginx_conf}
@@ -735,7 +738,7 @@ EOF
 
 # https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
 dns_update() {
-    CF_TOKEN_DNS=$(cat ~/.CF_TOKEN_DNS)
+    CF_TOKEN_DNS=${CF_Token}
     CFZONE_NAME=${Domain_Main}
     CFRECORD_NAME=${Domain_SNI}
     # If required settings are missing just exit
@@ -811,17 +814,23 @@ tls_acme_register() {
     # ~/.acme.sh/acme.sh --set-default-ca  --server letsencrypt
 }
 tls_acme_obtain() {
+    
     # 使用 acme.sh 生成证书
-    if [[ -z ${Domain_SNI} ]]; then
+    if [[ -z ${CF_Token} ]]; then
+        config_dns_Provider
+    elif [[ -z ${Domain_SNI} ]]; then
         # Domain_SNI=$(cat ${config_ymlfile} | grep CertDomain: | awk -F "\"" 'NR==1{print $2}')
         read -p "请输入要申请证书的域名：" Domain_SNI
     fi
+    
+    # 自动解析域名
+    dns_update
+
     if [[ ${Domain_SNI##*\.} =~ (cf|ga|gq|ml|tk) ]]; then
         echo "cloudflare不支持这些域名api方式管理：.cf, .ga, .gq, .ml, .tk"
         echo -e "不想折腾，垃圾域名还是扔了算了"
         # acme.sh --issue -d ${Domain_Srv} --standalone
     else
-        config_dns_Provider
         echo "准备申请 ${Domain_SNI} 证书"
         sleep 3
         ~/.acme.sh/acme.sh --issue -d ${Domain_SNI} --dns ${dns_Provider_acme}
