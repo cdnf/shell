@@ -236,7 +236,7 @@ config_Email() {
     # local Cert_Email_Account=$(((RANDOM << 9)))
     # Cert_Email=${Cert_Email_Account}@gmail.com
     # 默认为二级子域名，${Domain_Srv#*\.} 取域名中第一个”.“右侧到结尾字符串
-    Cert_Email=admin@${Domain_Srv#*\.}
+    Cert_Email=admin@${Domain_SNI#*\.}
 }
 
 config_GetNodeInfo() {
@@ -808,6 +808,9 @@ tls_acme_obtain() {
         # Domain_SNI=$(cat ${config_ymlfile} | grep CertDomain: | awk -F "\"" 'NR==1{print $2}')
         read -p "请输入要申请证书的域名：" Domain_SNI
     fi
+    if [[ ! -f "~/.acme.sh/acme.sh" ]]; then
+        tls_acme_install
+    fi
 
     # 自动解析域名
     dns_update
@@ -948,7 +951,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 3.1.1"
+    echo -e "	Version: 3.1.2"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
