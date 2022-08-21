@@ -433,8 +433,8 @@ config_set() {
         if [[ "$Node_Type" == "Shadowsocks" ]]; then
             config_caddy_Shadowsocks
         fi
-        caddy reload
-    else
+        systemctl restart caddy
+    elif [[ "$rules_num" == "2" ]]; then
         systemctl disable caddy; systemctl stop caddy
         if [[ ! $(nginx -v) ]]; then
             install_Nginx
@@ -451,12 +451,11 @@ config_set() {
         if [[ "$Node_Type" == "Shadowsocks" ]]; then
             config_Nginx_Shadowsocks
         fi
-        nginx -s reload
+        systemctl restart nginx
+    else
+        echo
+        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
     fi
-
-    echo
-    echo -e "由Caddy/Nginx或Acme管理ssl证书，关闭XrayR证书管理功能"
-    is_tls="0"
 
     if [[ ${network_security} == "xtls" ]]; then
         Enable_XTLS="true"
@@ -468,30 +467,7 @@ config_set() {
     else
         Enable_Vless="false"
     fi
-    if [[ "$is_tls" == "1" ]]; then
-        echo -e "[1] http \t [2] file \t [3] dns"
-        read -p "证书认证模式（默认http）:" Cert_Mode_num
-        [ -z "${Cert_Mode_num}" ] && Cert_Mode_num="1"
-        if [[ "${Cert_Mode_num}" == "2" ]]; then
-            Cert_Mode="file"
-        elif [[ "${Cert_Mode_num}" == "3" ]]; then
-            Cert_Mode="dns"
-            echo -e "[1] cloudflare \t [2] dnspod \t [3] namesilo"
-            read -p "DNS托管商:" dns_Provider_num
-            if [[ "${dns_Provider_num}" == "2" ]]; then
-                dns_Provider="dnspod"
-            elif [[ "${dns_Provider_num}" == "3" ]]; then
-                dns_Provider="namesilo"
-            else
-                dns_Provider="cloudflare"
-            fi
-            config_dns_Provider
-        else
-            Cert_Mode="http"
-        fi
-    else
-        Cert_Mode="none"
-    fi
+
     if [[ "$Node_Type" == "Trojan" ]]; then
         Enable_Fallback="true"
         # 解决Trojan无法用nginx路径分流
@@ -499,7 +475,9 @@ config_set() {
         Cert_Mode="file"
     else
         Enable_Fallback="false"
+        # 由nginx处理了
         Enable_ProxyProtocol="false"
+        Cert_Mode="none"
     fi
 }
 config_modify() {
@@ -822,7 +800,7 @@ tls_acme_obtain() {
         # Domain_SNI=$(cat ${config_ymlfile} | grep CertDomain: | awk -F "\"" 'NR==1{print $2}')
         read -p "请输入要申请证书的域名：" Domain_SNI
     fi
-    
+
     # 自动解析域名
     dns_update
 
@@ -851,8 +829,9 @@ tls_acme_deploy() {
         --reloadcmd "systemctl restart nginx; systemctl restart caddy"
 
     # 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
-    sed -i '/^.*${Domain_SNI}.*/d' /var/spool/cron/root
-    echo -e "0 0 1 */2 * ~/.acme.sh/acme.sh --install-cert -d ${Domain_SNI} --fullchain-file ${TLS_CertFile} --key-file ${TLS_KeyFile}" >>/var/spool/cron/root
+    sed -i '/^.*${Domain_SNI}.*/d' /etc/crontab
+    echo -e "0 0 1 */2 * ~/.acme.sh/acme.sh --install-cert -d ${Domain_SNI} --fullchain-file ${TLS_CertFile} --key-file ${TLS_KeyFile}" >>/etc/crontab
+    systemctl restart ${cron_srv}
 }
 
 # 0: running, 1: not running, 2: not installed
@@ -961,7 +940,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 3.0.0"
+    echo -e "	Version: 3.1.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
