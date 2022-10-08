@@ -841,7 +841,7 @@ tls_acme_deploy() {
 
     # 加个保险每2个月定时自动部署一次，防止acme自动更新未部署到 $tls_path
     sed -i '/^.*${Domain_SNI}.*/d' /etc/crontab
-    echo -e "0 0 1 */2 * ~/.acme.sh/acme.sh --install-cert -d ${Domain_SNI} --fullchain-file ${TLS_CertFile} --key-file ${TLS_KeyFile}" >>/etc/crontab
+    echo -e "0 0 1 */2 * root ~/.acme.sh/acme.sh --install-cert -d ${Domain_SNI} --fullchain-file ${TLS_CertFile} --key-file ${TLS_KeyFile}" >>/etc/crontab
     systemctl restart ${cron_srv}
 }
 
@@ -951,7 +951,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 3.1.3"
+    echo -e "	Version: 3.1.4"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
