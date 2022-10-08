@@ -37,7 +37,7 @@ fi
 echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
 sed -i '/^.*ntpdate*/d' /etc/crontab
-sed -i '$a\0 1 * * 1 root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/crontab
+sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/crontab
 hwclock -w && systemctl restart ${cron_srv}
 
 # 实现按任意键继续
@@ -868,7 +868,7 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    latest_version=$(curl -Ls "https://api.github.com/repos/newxrayr/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ -z "${latest_version}" ]]; then
         latest_version="获取在线版本失败，请检查网络连接"
         exit 1
@@ -879,7 +879,7 @@ install_XrayR() {
 
     echo
     echo -e "开始安装 XrayR 版本：${XrayR_version}"
-    XrayR_url="https://github.com/newxrayr/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
+    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
@@ -951,7 +951,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金将军"
-    echo -e "	Version: 3.1.2"
+    echo -e "	Version: 3.1.3"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
