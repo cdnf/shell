@@ -1,0 +1,14 @@
+v3.vsrv.top:443 {
+    root * /usr/share/caddy
+    file_server
+    log {
+        output file /usr/share/caddy/access.log
+    }
+    tls admin@nlist.tk
+    @mywebsocket {
+        path /game_service
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @mywebsocket localhost:2082
+}

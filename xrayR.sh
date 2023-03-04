@@ -11,20 +11,21 @@ cur_dir=$(pwd)
 config_ymlfile="/etc/XrayR/config.yml"
 config_rulefile="/etc/XrayR/rulelist"
 config_dnsfile="/etc/XrayR/dns.json"
+caddy_config="/etc/caddy/Caddyfile"
 tls_path="/srv/.cert"
 web_2048="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
 # 安装基础依赖
-dependency="wget curl git unzip gzip tar screen lrzsz socat ntpdate jq cron dnsutils"
+local_tool="wget curl git unzip gzip tar screen lrzsz socat ntpdate jq cron dnsutils net-tools file"
 if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
     os="debian"
     cron_srv="cron"
     INS="apt -y install"
     apt -y update
     apt remove -y httpd
-    $INS ${dependency}
+    $INS ${local_tool}
 else
     echo -e "${red}未检测到系统版本，本垃圾程序只支持Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
 fi
@@ -34,10 +35,13 @@ if [[ ${sys_bit} != "x86_64" ]]; then
     exit 2
 fi
 #设置时区为东八区
-echo yes | cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+# 开启cron日志输出
+sed -i "/${cron_srv}/s/^#//" /etc/rsyslog.conf
+systemctl restart rsyslog
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
 sed -i '/^.*ntpdate*/d' /etc/crontab
-sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org >> /dev/null 2>&1' /etc/crontab
+sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
 hwclock -w && systemctl restart ${cron_srv}
 
 # 实现按任意键继续
@@ -84,19 +88,19 @@ get_Swap() {
 config_init() {
     cat >${config_ymlfile} <<EOF
 Log:
-    Level: error # Log level: none, error, warning, info, debug 
-    AccessPath: # ./access.Log
-    ErrorPath: # ./error.log
-DnsConfigPath: # ./dns.json Path to dns config, check https://xtls.github.io/config/base/dns/ for help
-RouteConfigPath: # ./route.json # Path to route config, check https://xtls.github.io/config/base/route/ for help
+  Level: error # Log level: none, error, warning, info, debug 
+  AccessPath: # /etc/XrayR/access.Log
+  ErrorPath: # /etc/XrayR/error.log
+DnsConfigPath: # /etc/XrayR/dns.json # Path to dns config, check https://xtls.github.io/config/dns.html for help
+RouteConfigPath: # /etc/XrayR/route.json # Path to route config, check https://xtls.github.io/config/routing.html for help
 InboundConfigPath: # /etc/XrayR/custom_inbound.json # Path to custom inbound config, check https://xtls.github.io/config/inbound.html for help
-OutboundConfigPath: # ./custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/base/outbound/ for help
-ConnetionConfig:
-    Handshake: 4 # Handshake time limit, Second
-    ConnIdle: 10 # Connection idle time limit, Second
-    UplinkOnly: 2 # Time limit when the connection downstream is closed, Second
-    DownlinkOnly: 4 # Time limit when the connection is closed after the uplink is closed, Second
-    BufferSize: 64 # The internal cache size of each connection, kB
+OutboundConfigPath: # /etc/XrayR/custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/outbound.html for help
+ConnectionConfig:
+  Handshake: 4 # Handshake time limit, Second
+  ConnIdle: 30 # Connection idle time limit, Second
+  UplinkOnly: 2 # Time limit when the connection downstream is closed, Second
+  DownlinkOnly: 4 # Time limit when the connection is closed after the uplink is closed, Second
+  BufferSize: 64 # The internal cache size of each connection, kB
 Nodes:
 EOF
     echo -e "基础配置已写入 ${green}${config_ymlfile}${plain}"
@@ -108,7 +112,7 @@ config_nodes() {
     else
         cat >>${config_ymlfile} <<EOF
     -
-        PanelType: "${Panel_Type}" # Panel type: SSpanel, V2board, PMpanel, Proxypanel
+        PanelType: "${Panel_Type}" # Panel type: SSpanel, V2board, NewV2board, PMpanel, Proxypanel, V2RaySocks
         ApiConfig:
             ApiHost: "${Api_Host}"
             ApiKey: "${Api_Key}"
@@ -119,21 +123,31 @@ config_nodes() {
             EnableXTLS: ${Enable_XTLS} # Enable XTLS for V2ray and Trojan
             SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
             DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
-            RuleListPath: "Rule_List" # ./rulelist Path to local rulelist file
+            RuleListPath: "Rule_List" # /etc/XrayR/rulelist Path to local rulelist file
         ControllerConfig:
             ListenIP: 0.0.0.0 # IP address you want to listen
             SendIP: 0.0.0.0 # IP address you want to send pacakage
             UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
             EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
             DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
-            DisableUploadTraffic: false # Disable Upload Traffic to the panel
-            DisableGetRule: false # Disable Get Rule from the panel
-            DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks 
             EnableProxyProtocol: ${Enable_ProxyProtocol} # Only works for WebSocket and TCP
+            AutoSpeedLimitConfig:
+                Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
+                WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.
+                LimitSpeed: 0 # The speedlimit of a limited user (unit: mbps)
+                LimitDuration: 0 # How many minutes will the limiting last (unit: minute)
+            GlobalDeviceLimitConfig:
+                Enable: false # Enable the global device limit of a user
+                RedisAddr: 127.0.0.1:6379 # The redis server address
+                RedisPassword: ${Redis_Password} # Redis password
+                RedisDB: 0 # Redis DB
+                Timeout: 5 # Timeout for redis request
+                Expiry: 60 # Expiry time (second)
             EnableFallback: ${Enable_Fallback} # Only support for Trojan and Vless
             FallBackConfigs: # Support multiple fallbacks
                 -
                     SNI: # TLS SNI(Server Name Indication), Empty for any
+                    Alpn: # Alpn, Empty for any
                     Path: # HTTP PATH, Empty for any
                     Dest: "80" # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
                     ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
@@ -144,7 +158,7 @@ EOF
 config_Cert() {
     cat >>${config_ymlfile} <<EOF
             CertConfig:
-                CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
+                CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, tls, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "${Domain_SNI}" # Domain to cert
                 CertFile: "${TLS_CertFile}" # Provided if the CertMode is file
                 KeyFile: "${TLS_KeyFile}" # http default in /etc/XrayR/cert/certificates/
@@ -167,16 +181,9 @@ config_Provider_cloudflare() {
                     # CF_DNS_API_TOKEN: "${SECRET_KEY}"
 EOF
 }
-config_Provider_namesilo() {
-    cat >>${config_ymlfile} <<EOF
-                Provider: "namesilo" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
-                DNSEnv: # DNS ENV option used by DNS provider
-                    NAMESILO_API_KEY: "${ACCESS_KEY}"
-EOF
-}
 
+# acme的配置用法：https://github.com/acmesh-official/acme.sh/wiki/dnsapi
 config_dns_Provider() {
-    # acme的配置用法：https://github.com/acmesh-official/acme.sh/wiki/dnsapi
     if [[ ${dns_Provider} == "dnspod" ]]; then
         dns_Provider_acme="dns_dp"
         read -p "请输入DNSPod Token ID：" dp_TokenId
@@ -185,10 +192,6 @@ config_dns_Provider() {
         export DP_Key="${dp_Token}"
         # read -p "DNSPOD_API_KEY [Token]: " ACCESS_KEY
         ACCESS_KEY=${dp_TokenId},${dp_Token}
-    elif [[ ${dns_Provider} == "namesilo" ]]; then
-        dns_Provider_acme="dns_namesilo"
-        read -p "请输入Namesilo Key:" ACCESS_KEY
-        export Namesilo_Key="${ACCESS_KEY}"
     else
         echo "默认DNS托管在 cloudflare"
         dns_Provider_acme="dns_cf"
@@ -208,6 +211,7 @@ config_XrayR_dns() {
 {
     "servers": [
         "1.1.1.1",
+        "1.2.4.8",
         "8.8.8.8",
         "localhost"
     ],
@@ -244,6 +248,7 @@ config_GetNodeInfo() {
     # "V2ray":"${Api_Host}/api/v1/server/Deepbwork/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
     # "Trojan":"${Api_Host}/api/v1/server/TrojanTidalab/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
     # "Shadowsocks":${Api_Host}/api/v1/server/ShadowsocksTidalab/user?token=${Api_Key}&node_id=${Node_ID}&local_port=1
+    # NewV2board：https://${Api_Host}/api/v1/server/UniProxy/config?token=xx&node_type=trojan&node_id=1
     if [[ "$Node_Type" == "V2ray" ]]; then
         # 获取后端inbound.{port,protocol，streamSettings.{security,wsSettings.path}}
         NodeInfo_url="${Api_Host}/api/v1/server/Deepbwork/config?token=${Api_Key}&node_id=${Node_ID}&local_port=1"
@@ -304,237 +309,21 @@ config_GetNodeInfo() {
     echo -e "从 ${green}${Api_Host}${plain} 获取 ${green}${Node_ID}${plain} 号 ${green}${Node_Type}${plain} 节点信息完成"
 }
 
-# Pre-installation settings
-config_set() {
-    if [[ -z ${panel_num} ]]; then
-        echo
-        echo -e "[1] SSpanel \t [2] V2board"
-        read -p "前端面板类型（默认V2board）：" panel_num
-        [ -z "${panel_num}" ] && panel_num="2"
-        if [ "$panel_num" == "1" ]; then
-            Panel_Type="SSpanel"
-        elif [ "$panel_num" == "2" ]; then
-            Panel_Type="V2board"
-        else
-            echo "type error, please try again"
-            pause_press
-            config_set
-        fi
-    fi
-    if [[ -z ${Api_Key} ]]; then
-        read -p "前端面板认证域名（包括http[s]://）：" Api_Host
-        [ -z "${Api_Host}" ] && Api_Host="http://1.1.1.1"
-        read -p "前端面板的apikey：" Api_Key
-        [ -z "${Api_Key}" ] && Api_Key="abc123"
-    fi
-    if [[ -z ${Domain_Main} ]]; then
-        read -p "请输入欲使用的主域名，如 a.com：" Domain_Main
-    fi
-    # 默认cloudflare解析域名和申请证书
-    CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
-
-    read -p "前端节点信息里面的节点ID：" Node_ID
-    [ -z "${Node_ID}" ] && Node_ID=1
-
-    Domain_Srv="${Node_ID}.${Domain_Main}"
-
-    echo -e "[1] V2ray \t [2] Trojan \t [3] Shadowsocks"
-    read -p "节点类型（默认V2ray）：" node_num
-    [ -z "${node_num}" ] && node_num="1"
-    if [[ "$node_num" == "1" ]]; then
-        Node_Type="V2ray"
-        Domain_SNI="v${Domain_Srv}"
-        webserver_listen="2083"
-    elif [[ "$node_num" == "2" ]]; then
-        Node_Type="Trojan"
-        Domain_SNI="t${Domain_Srv}"
-        # webserver_listen="2096"
-    elif [[ "$node_num" == "3" ]]; then
-        Node_Type="Shadowsocks"
-        Domain_SNI="s${Domain_Srv}"
-        webserver_listen="2053"
-    else
-        echo "type error, please try again"
-        pause_press
-        config_set
-    fi
-    TLS_CertFile="${tls_path}/${Domain_SNI}.crt"
-    TLS_KeyFile="${tls_path}/${Domain_SNI}.key"
-    config_Email
-    # 从面板获取节点关键信息
-    config_GetNodeInfo
-    if [[ ${inbound_port} == "443" || ${inbound_port} == "80" ]]; then
-        echo "后端服务不可设置为 443 或 80，请到面板修改为其他端口"
-        pause_press
-        config_set
-    fi
-
-    echo
-    echo -e "\t面板类型：${green}${Panel_Type}${plain}"
-    echo -e "\t节点类型「Node_Type」：${green}${Node_Type}${plain}"
-    echo -e "\t节点ID「node_id」：${green}${Node_ID}${plain}"
-    echo -e "\t监听端口「port」：${green}${inbound_port}${plain}"
-    echo -e "\t使用协议「protocol」：${green}${inbound_protocol}${plain}"
-    echo -e "\t安全加密「tls」：${green}${network_security}${plain}"
-    echo -e "\t传输协议「network」：${green}${network_protocol}${plain}"
-    if [[ "$Node_Type" == "Trojan" ]]; then
-        echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
-    fi
-    if [[ "$Node_Type" == "V2ray" ]]; then
-        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
-        echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
-    fi
-    if [[ "$Node_Type" == "Shadowsocks" ]]; then
-        echo -e "\t混淆路径「path」：${green}${network_path}${plain}"
-        echo -e "\t混淆域名「serverName」：${green}${network_sni}${plain}"
-    fi
-    echo
-    read -p "以上信息确认正确就回车继续，否则请输 N 重来：" Check_All
-    if [[ ${Check_All} == "N" ]]; then
-        config_set
-    fi
-
-    # 规则组合：https://github.com/XTLS/Xray-examples
-    # 规则组合：https://github.com/lxhao61/integrated-examples
-    # echo
-    # echo -e "v2board暂不支持VLESS，先写好等面板支持"
-    # echo -e "========================================================="
-    # echo -e "1. VLESS+TCP+XTLS「☆☆☆☆☆Xray前置回落到caddy时用，号称最强性能」"
-    # echo -e "2. VLESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
-    # echo -e "3. VMESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
-    # echo -e "4. VMESS+WS「☆☆☆中转配不好证书的时候直接用」"
-    # echo -e "5. VLESS+WS「☆☆☆中转配不好证书的时候直接用」"
-    # echo -e "6. VLESS+gRPC+TLS「☆Xray前置回落到caddy时用」"
-    # echo -e "7. Trojan+gRPC+TLS「☆☆延迟低，支持CDN」"
-    # echo -e "8. Trojan+XTLS「☆☆☆☆高性能小马」"
-    # echo -e "========================================================="
-    # 只保留4层转发，可以cdn，伪装也方便
-    echo -e "========================================================="
-    echo -e "1. Caddy:{默认80,443} --> XrayR"
-    echo -e "2. Nginx:{默认80,443} --> XrayR"
-    echo -e "本脚本默认Caddy/Nginx伪装，要其他组合请后续自行修改配置"
-    echo -e "========================================================="
-    read -p "请选择方案组合（默认 2）：" rules_num
-    [ -z "${rules_num}" ] && rules_num="2"
-
-    if [[ "$rules_num" == "1" ]]; then
-        systemctl disable nginx; systemctl stop nginx
-
-        # caddy_config=Caddyfile或者Caddyfile.json
-        caddy_config="/etc/caddy/Caddyfile.json"
-
-        install_Caddy && config_caddy
-        if [[ "$Node_Type" == "Trojan" ]]; then
-            config_caddy_Trojan
-        fi
-        if [[ "$Node_Type" == "V2ray" ]]; then
-            config_caddy_Vmess
-        fi
-        if [[ "$Node_Type" == "Shadowsocks" ]]; then
-            config_caddy_Shadowsocks
-        fi
-        systemctl restart caddy
-    elif [[ "$rules_num" == "2" ]]; then
-        systemctl disable caddy; systemctl stop caddy
-        if [[ ! $(nginx -v) ]]; then
-            install_Nginx
-        fi
-        nginx_conf="/etc/nginx/nginx.conf"
-
-        config_Nginx
-        if [[ "$Node_Type" == "Trojan" ]]; then
-            config_Nginx_Trojan
-        fi
-        if [[ "$Node_Type" == "V2ray" ]]; then
-            config_Nginx_Vmess
-        fi
-        if [[ "$Node_Type" == "Shadowsocks" ]]; then
-            config_Nginx_Shadowsocks
-        fi
-        systemctl restart nginx
-    else
-        echo
-        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
-    fi
-
-    if [[ ${network_security} == "xtls" ]]; then
-        Enable_XTLS="true"
-    else
-        Enable_XTLS="false"
-    fi
-    if [[ ${inbound_protocol} == "vless" ]]; then
-        Enable_Vless="true"
-    else
-        Enable_Vless="false"
-    fi
-
-    if [[ "$Node_Type" == "Trojan" ]]; then
-        Enable_Fallback="true"
-        # 解决Trojan无法用nginx路径分流
-        Enable_ProxyProtocol="true"
-        Cert_Mode="file"
-    else
-        Enable_Fallback="false"
-        # 由nginx处理了
-        Enable_ProxyProtocol="false"
-        Cert_Mode="none"
-    fi
-}
-config_modify() {
-    config_Cert
-    # V2board启用本地审计
-    if [[ "${Panel_Type}" == "V2board" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
-        echo -e "V2board不支持在线同步规则，将启用本地规则……"
-        config_audit
-        sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
-    else
-        sed -i "s|\"Rule_List\"||" ${config_ymlfile}
-    fi
-    # 暂时用不上
-    if [[ "$rules_num" == "3" ]]; then
-        echo
-        echo -e "由XrayR管理ssl证书，注销Caddy申请证书功能"
-        sed -i "s|tls |#tls |" ${caddy_config}
-        systemctl restart caddy
-    elif [[ "${dns_Provider}" == "dnspod" ]]; then
-        config_Provider_dnspod
-    elif [[ "${dns_Provider}" == "namesilo" ]]; then
-        config_Provider_namesilo
-    elif [[ "${dns_Provider}" == "cloudflare" ]]; then
-        config_Provider_cloudflare
-    else
-        echo -e "未选择dns认证，跳过……"
-        echo -e "如不符合预期请自行检查 ${green}${config_ymlfile}${plain}"
-    fi
-
-    # 第一次默认安装acme
-    if [[ ! -f "~/.acme.sh/acme.sh" ]]; then
-        tls_acme_install
-    else
-        echo -e "acme已经在系统里了，跳过安装步骤..."
-    fi
-    tls_acme_obtain
-}
-
 install_Caddy() {
     # 官网选的集成插件下载链接，可用"caddy list-modules"命令查看
-    caddy_bin="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
-    wget -N --no-check-certificate -O "/usr/bin/caddy" ${caddy_bin}
-    chmod +x "/usr/bin/caddy"
-    groupadd --system caddy
-    useradd --system \
-        --gid caddy \
-        --create-home \
-        --home-dir /srv/www \
-        --shell /usr/sbin/nologin \
-        --comment "Caddy web server" \
-        caddy
+    # caddy_bin="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
+    caddy_bin="https://github.com/lxhao61/integrated-examples/releases/download/20230221/caddy-linux-amd64.tar.gz"
+    
+    $INS debian-keyring debian-archive-keyring apt-transport-https
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+    apt update
+    $INS caddy && systemctl stop caddy
 
-    caddy_service="https://raw.githubusercontent.com/caddyserver/dist/master/init/caddy.service"
-    caddy_systemd="/etc/systemd/system/caddy.service"
-    wget -N --no-check-certificate -O ${caddy_systemd} ${caddy_service}
-    sed -i "s|/etc/caddy/Caddyfile|${caddy_config}|g" ${caddy_systemd}
-    systemctl enable caddy && systemctl daemon-reload
+    # wget -N --no-check-certificate -O caddy ${caddy_bin}
+    wget -N --no-check-certificate -O caddy.tar.gz ${caddy_bin}
+    tar zxvf caddy.tar.gz caddy && rm -f caddy.tar.gz
+    mv /usr/bin/caddy{,.bak} && mv -f caddy "/usr/bin/caddy" && chmod +x "/usr/bin/caddy"
     echo
     echo -e "${green}Caddy2 安装完成${plain}"
 }
@@ -546,39 +335,35 @@ install_web() {
 config_caddy() {
     # keys：domain，port，tls，path/sni
     # caddy监控443和80，通过path分流到后端，所以后端服务不能设置这两个端口
-    if [[ ! -d "/etc/caddy" ]]; then
-        mkdir -p /etc/caddy
+    caddy_config_path=$(echo ${caddy_config%/*})
+    if [[ ! -d ${caddy_config_path} ]]; then
+        mkdir -p ${caddy_config_path}
     fi
+    # 修改caddy服务指定的配置文件
     cp -f ${caddy_config}{,_$(date +"%Y%m%d")}
+    # sed -i "s|^ExecStart.*|ExecStart=/usr/bin/caddy run --environ --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
+    # sed -i "s|^ExecReload.*|ExecReload=/usr/bin/caddy reload --force --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
+    # rm -f /etc/caddy/Caddyfile
 
     # Caddyfile格式
-    cat >${caddy_config} <<EOF
-${Domain_Srv} {
-  "admin": {"disabled": true},
-  "apps": {
-    "layer4": {
-      "servers": {
-        "srv0": {
-          "listen": [":443"],
-          "routes": [
-            {
-              "match": [{"tls": {"sni": ["${Domain_Srv}"]}}],
-              "handle": [
-                {
-                  "handler": "proxy",
-                  "upstreams": [{"dial": ["${web_defalut}"]}]
-                }
-              ]
-            }
-          ]
-        }
-      }
+    cat >>${caddy_config} <<EOF
+${Domain_SNI} {
+    root * /usr/share/caddy
+    file_server
+    log {
+        output file /usr/share/caddy/access.log
     }
-  }
+    tls ${Cert_Email}
+    @mywebsocket {
+        path ${network_path}
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @mywebsocket localhost:${inbound_port}
 }
 EOF
-    install_web
-    systemctl restart caddy
+    # install_web
+    systemctl daemon-reload && systemctl restart caddy
 }
 
 config_caddy_Trojan() {
@@ -886,12 +671,10 @@ install_XrayR() {
         exit 1
     fi
 
-    unzip XrayR-linux-64.zip
-    rm -f XrayR-linux-64.zip
+    unzip XrayR-linux-64.zip && rm -f XrayR-linux-64.zip
     chmod +x XrayR
-    rm -f /etc/systemd/system/XrayR.service
-    file="https://github.com/cdnf/XrayR-release/raw/master/XrayR.service"
-    wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
+    XrayR_service="https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.service"
+    wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${XrayR_service}
     systemctl daemon-reload && systemctl stop XrayR
     systemctl enable XrayR
     echo -e "${green}XrayR ${XrayR_version}${plain} 安装完成，已设置开机自启"
@@ -919,7 +702,8 @@ install_XrayR() {
             echo -e "${green}XrayR 重启成功${plain}"
         else
             echo
-            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/${plain}"
+            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，${plain}"
+            echo -e "${red}则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/${plain}"
         fi
     fi
     # 安装管理工具
@@ -941,17 +725,224 @@ install_XrayR() {
 XrayR_tool() {
     echo
     if [[ ! -f usr/bin/XrayR ]]; then
-        curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/cdnf/XrayR-release/master/XrayR.sh
+        curl -o /usr/bin/XrayR -Ls https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.sh
         chmod +x /usr/bin/XrayR
     fi
+}
+
+# Pre-installation settings
+config_set() {
+    if [[ -z ${panel_num} ]]; then
+        echo
+        echo -e "[1] SSpanel \t [2] V2board"
+        read -p "前端面板类型（默认V2board）：" panel_num
+        [ -z "${panel_num}" ] && panel_num="2"
+        if [ "$panel_num" == "1" ]; then
+            Panel_Type="SSpanel"
+        elif [ "$panel_num" == "2" ]; then
+            Panel_Type="V2board"
+        else
+            echo "type error, please try again"
+            pause_press
+            config_set
+        fi
+    fi
+    if [[ -z ${Api_Key} ]]; then
+        read -p "前端面板认证域名（包括http[s]://）：" Api_Host
+        [ -z "${Api_Host}" ] && Api_Host="http://1.1.1.1"
+        read -p "前端面板的apikey：" Api_Key
+        [ -z "${Api_Key}" ] && Api_Key="abc123"
+    fi
+    if [[ -z ${Domain_Main} ]]; then
+        read -p "请输入欲使用的主域名，如 a.com：" Domain_Main
+    fi
+    # 默认cloudflare解析域名和申请证书
+    CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
+
+    read -p "前端节点信息里面的节点ID：" Node_ID
+    [ -z "${Node_ID}" ] && Node_ID=1
+
+    Domain_Srv="${Node_ID}.${Domain_Main}"
+
+    echo -e "[1] V2ray \t [2] Trojan \t [3] Shadowsocks"
+    read -p "节点类型（默认V2ray）：" node_num
+    [ -z "${node_num}" ] && node_num="1"
+    if [[ "$node_num" == "1" ]]; then
+        Node_Type="V2ray"
+        Domain_SNI="v${Domain_Srv}"
+        webserver_listen="2083"
+    elif [[ "$node_num" == "2" ]]; then
+        Node_Type="Trojan"
+        Domain_SNI="t${Domain_Srv}"
+        # webserver_listen="2096"
+    elif [[ "$node_num" == "3" ]]; then
+        Node_Type="Shadowsocks"
+        Domain_SNI="s${Domain_Srv}"
+        webserver_listen="2053"
+    else
+        echo "type error, please try again"
+        pause_press
+        config_set
+    fi
+    TLS_CertFile="${tls_path}/${Domain_SNI}.crt"
+    TLS_KeyFile="${tls_path}/${Domain_SNI}.key"
+    config_Email
+    # 从面板获取节点关键信息
+    config_GetNodeInfo
+    if [[ ${inbound_port} == "443" || ${inbound_port} == "80" ]]; then
+        echo "后端服务不可设置为 443 或 80，请到面板修改为其他端口"
+        pause_press
+        config_set
+    fi
+
+    echo
+    echo -e "\t面板类型：${green}${Panel_Type}${plain}"
+    echo -e "\t节点类型「Node_Type」：${green}${Node_Type}${plain}"
+    echo -e "\t节点ID「node_id」：${green}${Node_ID}${plain}"
+    echo -e "\t监听端口「port」：${green}${inbound_port}${plain}"
+    echo -e "\t使用协议「protocol」：${green}${inbound_protocol}${plain}"
+    echo -e "\t安全加密「tls」：${green}${network_security}${plain}"
+    echo -e "\t传输协议「network」：${green}${network_protocol}${plain}"
+    if [[ "$Node_Type" == "Trojan" ]]; then
+        echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
+    fi
+    if [[ "$Node_Type" == "V2ray" ]]; then
+        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
+        echo -e "\t分流SNI「serverName」：${green}${network_sni}${plain}"
+    fi
+    if [[ "$Node_Type" == "Shadowsocks" ]]; then
+        echo -e "\t混淆路径「path」：${green}${network_path}${plain}"
+        echo -e "\t混淆域名「serverName」：${green}${network_sni}${plain}"
+    fi
+    echo
+    read -p "以上信息确认正确就回车继续，否则请输 N 重来：" Check_All
+    if [[ ${Check_All} == "N" ]]; then
+        config_set
+    fi
+
+    # 规则组合：https://github.com/XTLS/Xray-examples
+    # 规则组合：https://github.com/lxhao61/integrated-examples
+    # echo
+    # echo -e "v2board暂不支持VLESS，先写好等面板支持"
+    # echo -e "========================================================="
+    # echo -e "1. VLESS+TCP+XTLS「☆☆☆☆☆Xray前置回落到caddy时用，号称最强性能」"
+    # echo -e "2. VLESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
+    # echo -e "3. VMESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
+    # echo -e "4. VMESS+WS「☆☆☆中转配不好证书的时候直接用」"
+    # echo -e "5. VLESS+WS「☆☆☆中转配不好证书的时候直接用」"
+    # echo -e "6. VLESS+gRPC+TLS「☆Xray前置回落到caddy时用」"
+    # echo -e "7. Trojan+gRPC+TLS「☆☆延迟低，支持CDN」"
+    # echo -e "8. Trojan+XTLS「☆☆☆☆高性能小马」"
+    # echo -e "========================================================="
+    # 只保留4层转发，可以cdn，伪装也方便
+    echo -e "========================================================="
+    echo -e "1. Caddy:{默认80,443} --> XrayR"
+    echo -e "2. Nginx:{默认80,443} --> XrayR"
+    echo -e "本脚本默认Caddy/Nginx伪装，要其他组合请后续自行修改配置"
+    echo -e "========================================================="
+    read -p "请选择方案组合（默认 1）：" rules_num
+    [ -z "${rules_num}" ] && rules_num="1"
+
+    if [[ "$rules_num" == "1" ]]; then
+        systemctl disable nginx; systemctl stop nginx
+
+        install_Caddy && config_caddy
+        if [[ "$Node_Type" == "Trojan" ]]; then
+            config_caddy_Trojan
+        fi
+        if [[ "$Node_Type" == "V2ray" ]]; then
+            config_caddy_Vmess
+        fi
+        if [[ "$Node_Type" == "Shadowsocks" ]]; then
+            config_caddy_Shadowsocks
+        fi
+        systemctl restart caddy
+    elif [[ "$rules_num" == "2" ]]; then
+        systemctl disable caddy; systemctl stop caddy
+        if [[ ! $(nginx -v) ]]; then
+            install_Nginx
+        fi
+        nginx_conf="/etc/nginx/nginx.conf"
+
+        config_Nginx
+        if [[ "$Node_Type" == "Trojan" ]]; then
+            config_Nginx_Trojan
+        fi
+        if [[ "$Node_Type" == "V2ray" ]]; then
+            config_Nginx_Vmess
+        fi
+        if [[ "$Node_Type" == "Shadowsocks" ]]; then
+            config_Nginx_Shadowsocks
+        fi
+        systemctl restart nginx
+    else
+        echo
+        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
+    fi
+
+    if [[ ${network_security} == "xtls" ]]; then
+        Enable_XTLS="true"
+    else
+        Enable_XTLS="false"
+    fi
+    if [[ ${inbound_protocol} == "vless" ]]; then
+        Enable_Vless="true"
+    else
+        Enable_Vless="false"
+    fi
+
+    if [[ "$Node_Type" == "Trojan" ]]; then
+        Enable_Fallback="true"
+        # 解决Trojan无法用nginx路径分流
+        Enable_ProxyProtocol="true"
+        Cert_Mode="file"
+    else
+        Enable_Fallback="false"
+        # 由nginx处理了
+        Enable_ProxyProtocol="false"
+        Cert_Mode="none"
+    fi
+}
+config_modify() {
+    config_Cert
+    # V2board启用本地审计
+    if [[ "$panel_num" == "2" ]] && [[ "${Node_Type}" == "Trojan" || "${Node_Type}" == "Shadowsocks" ]]; then
+        echo -e "V2board不支持在线同步规则，将启用本地规则……"
+        config_audit
+        sed -i "s|\"Rule_List\"|\"${config_rulefile}\"|" ${config_ymlfile}
+    else
+        sed -i "s|\"Rule_List\"||" ${config_ymlfile}
+    fi
+    # 暂时用不上
+    if [[ "$rules_num" == "3" ]]; then
+        echo
+        echo -e "由XrayR管理ssl证书，注销Caddy申请证书功能"
+        sed -i "s|tls |#tls |" ${caddy_config}
+        systemctl restart caddy
+    elif [[ "${dns_Provider}" == "dnspod" ]]; then
+        config_Provider_dnspod
+    elif [[ "${dns_Provider}" == "cloudflare" ]]; then
+        config_Provider_cloudflare
+    else
+        echo -e "未选择dns认证，跳过……"
+        echo -e "如不符合预期请自行检查 ${green}${config_ymlfile}${plain}"
+    fi
+
+    # 第一次默认安装acme
+    if [[ ! -f "~/.acme.sh/acme.sh" ]]; then
+        tls_acme_install
+    else
+        echo -e "acme已经在系统里了，跳过安装步骤..."
+    fi
+    tls_acme_obtain
 }
 
 # 菜单
 menu() {
     echo
     echo -e "======================================"
-    echo -e "	Author: 金将军"
-    echo -e "	Version: 3.1.4"
+    echo -e "	Author: 金三将军"
+    echo -e "	Version: 3.2.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
