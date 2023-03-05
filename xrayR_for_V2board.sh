@@ -164,6 +164,12 @@ config_Cert() {
                 KeyFile: "${TLS_KeyFile}" # http default in /etc/XrayR/cert/certificates/
                 Email: "${Cert_Email}"
 EOF
+
+    if [[ ${dns_Provider} == "dnspod" ]]; then
+        config_Provider_dnspod
+    elif [[ ${dns_Provider} == "cloudflare" ]]; then
+        config_Provider_cloudflare
+    fi
 }
 config_Provider_dnspod() {
     cat >>${config_XrayR} <<EOF
@@ -303,7 +309,7 @@ ${network_domain} {
     root * /srv/www
     file_server
     log {
-        output file /usr/share/caddy/access.log
+        output file /var/log/caddy/access.log
     }
     tls ${Cert_Email}
     @mywebsocket {
@@ -468,7 +474,7 @@ install_XrayR() {
     if [[ ! -f ${config_XrayR} ]]; then
         config_set
         config_init && config_nodes
-        config_modify
+        config_Cert
         echo
         echo -e "全新安装完成，更多内容请见：https://crackair.gitbook.io/xrayr-project/"
     else
@@ -650,8 +656,7 @@ config_set() {
         echo
         echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
     fi
-}
-config_modify() {
+
     if [[ ${network_security} == "xtls" ]]; then
         Enable_XTLS="true"
     else
@@ -673,12 +678,8 @@ config_modify() {
         Enable_ProxyProtocol="false"
     fi
 
-    config_Cert
-    if [[ ${dns_Provider} == "dnspod" ]]; then
-        config_Provider_dnspod
-    elif [[ ${dns_Provider} == "cloudflare" ]]; then
-        config_Provider_cloudflare
-    fi
+    # 偷懒自动解析域名，只支持cloudflare
+    dns_update
 }
 
 # 菜单
@@ -686,7 +687,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.2"
+    echo -e "	Version: 4.0.3"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
@@ -708,7 +709,7 @@ while [ 1 ]; do
         ;;
     2)
         config_set
-        config_nodes && config_modify
+        config_nodes && config_Cert
         XrayR restart && XrayR log
         ;;
     3)
