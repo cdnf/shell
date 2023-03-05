@@ -600,6 +600,8 @@ config_set() {
 
     if [[ "$rules_num" == "1" ]]; then
         systemctl disable nginx; systemctl stop nginx
+        # 由caddy管理证书
+        Cert_Mode="none"
 
         install_Caddy && config_caddy
         # 未完待续
@@ -684,7 +686,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.1"
+    echo -e "	Version: 4.0.2"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
