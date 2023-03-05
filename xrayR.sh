@@ -220,9 +220,9 @@ config_GetNodeInfo() {
         # 伪装serverName
         network_sni=$(echo ${NodeInfo_json} | jq -r '.networkSettings.headers.Host')
         # 分流路径，回落对接用
-        network_path=$(echo ${NodeInfo_json} | jq -r '.networkSettings.headers.path')
+        network_path=$(echo ${NodeInfo_json} | jq -r '.networkSettings.path')
         # 配合自动解析，懒得指定连接域名，强制约定配置serviceName（clash配置grpc用的）为连接域名
-        network_domain=$(echo ${NodeInfo_json} | jq -r '.networkSettings.headers.serviceName')
+        network_domain=$(echo ${NodeInfo_json} | jq -r '.networkSettings.serviceName')
     elif [[ "${Node_Type}" == "Trojan" ]]; then
         # 后端监听端口
         inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
@@ -684,7 +684,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.0"
+    echo -e "	Version: 4.0.1"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
