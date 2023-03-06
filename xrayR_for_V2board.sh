@@ -40,9 +40,10 @@ ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 sed -i "/${cron_srv}/s/^#//" /etc/rsyslog.conf
 systemctl restart rsyslog
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
+ntpdate cn.pool.ntp.org && hwclock -w
 sed -i '/^.*ntpdate*/d' /etc/crontab
 sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
-hwclock -w && systemctl restart ${cron_srv}
+systemctl restart ${cron_srv}
 
 # 实现按任意键继续
 get_char() {
@@ -227,8 +228,8 @@ config_GetNodeInfo() {
         network_sni=$(echo ${NodeInfo_json} | jq -r '.networkSettings.headers.Host')
         # 分流路径，回落对接用
         network_path=$(echo ${NodeInfo_json} | jq -r '.networkSettings.path')
-        # 配合自动解析，懒得指定连接域名，强制约定配置serviceName（clash配置grpc用的）为连接域名
-        network_domain=$(echo ${NodeInfo_json} | jq -r '.networkSettings.serviceName')
+        # 配合自动解析，懒得指定连接域名，强制约定配置伪装serverName为连接域名
+        network_domain=${network_sni}
     elif [[ "${Node_Type}" == "Trojan" ]]; then
         # 后端监听端口
         inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
@@ -687,7 +688,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.3"
+    echo -e "	Version: 4.0.4"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
