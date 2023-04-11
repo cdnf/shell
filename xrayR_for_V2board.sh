@@ -269,18 +269,23 @@ config_GetNodeInfo() {
 }
 
 install_Caddy() {
-    # 官网选的集成插件下载链接，可用"caddy list-modules"命令查看
-    # caddy_bin="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
-    caddy_bin="https://github.com/lxhao61/integrated-examples/releases/download/20230221/caddy-linux-amd64.tar.gz"
-    
     $INS debian-keyring debian-archive-keyring apt-transport-https
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
     apt update
     $INS caddy && systemctl stop caddy
 
-    # wget -N --no-check-certificate -O caddy ${caddy_bin}
-    wget -N --no-check-certificate -O caddy.tar.gz ${caddy_bin}
+    # 集成插件下载链接，可用"caddy list-modules"命令查看
+    github_user="lxhao61"
+    github_repo="integrated-examples"
+    github_file="caddy-linux-amd64.tar.gz"
+    github_latest
+    # caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
+    caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
+
+    
+    # wget -N --no-check-certificate -O caddy ${caddy_url}
+    wget -N --no-check-certificate -O caddy.tar.gz ${caddy_url}
     tar zxvf caddy.tar.gz caddy && rm -f caddy.tar.gz
     mv /usr/bin/caddy{,.bak} && mv -f caddy "/usr/bin/caddy" && chmod +x "/usr/bin/caddy"
     echo
@@ -418,6 +423,16 @@ check_status() {
     fi
 }
 
+github_latest() {
+    github_api="https://api.github.com/repos/${github_user}/${github_repo}/releases/latest"
+    latest_version=$(curl -Ls "${github_api}" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [[ -z "${latest_version}" ]]; then
+        echo
+        echo -e "获取在线版本失败，请检查网络连接"
+        exit 1
+    fi
+}
+
 install_XrayR() {
     echo
     echo -e "${green}准备安装 XrayR${plain}"
@@ -428,18 +443,19 @@ install_XrayR() {
     mkdir -p /usr/local/XrayR/
     cd /usr/local/XrayR/
 
-    latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -z "${latest_version}" ]]; then
-        latest_version="获取在线版本失败，请检查网络连接"
-        exit 1
-    fi
+    github_user="XrayR-project"
+    github_repo="XrayR"
+    github_file="XrayR-linux-64.zip"
+    # latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    github_latest
+
     echo
     read -p "输入要安装版本（默认：${latest_version}）:" XrayR_version
     [ -z "${XrayR_version}" ] && XrayR_version="${latest_version}"
 
     echo
     echo -e "开始安装 XrayR 版本：${XrayR_version}"
-    XrayR_url="https://github.com/XrayR-project/XrayR/releases/download/${XrayR_version}/XrayR-linux-64.zip"
+    XrayR_url="https://github.com/${github_user}/${github_repo}/releases/download/${XrayR_version}/${github_file}"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
@@ -541,7 +557,7 @@ config_set() {
         config_set
     fi
 
-    # 通过cloudflare解析域名
+    # 通过cloudflare解析域名，不支持cf，ml，tk，gq等烂大街的免费域名
     # CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
     read -p "CloudFlare域名管理Token：" CF_TOKEN_DNS
 
@@ -688,7 +704,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.4"
+    echo -e "	Version: 4.0.5"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
@@ -726,3 +742,7 @@ while [ 1 ]; do
     esac
 done
 clear
+
+# TODO
+# 自动获取节点对外连接端口，并自动同步caddy配置
+# 服务端定期更换对外连接端口为随机值
