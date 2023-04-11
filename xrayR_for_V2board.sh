@@ -41,9 +41,15 @@ sed -i "/${cron_srv}/s/^#//" /etc/rsyslog.conf
 systemctl restart rsyslog
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
 ntpdate cn.pool.ntp.org && hwclock -w
-sed -i '/^.*ntpdate*/d' /etc/crontab
-sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
+sed -i "/^.*ntpdate*/d" /etc/crontab
+sed -i "$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1" /etc/crontab
 systemctl restart ${cron_srv}
+
+# 启用 ll 命令方便后续使用
+sed -i "s|^# export LS_OPTIONS|export LS_OPTIONS|" ~/.bashrc
+sed -i "s|^# eval |eval |" ~/.bashrc
+sed -i "s|^# alias l|alias l|g" ~/.bashrc
+source ~/.bashrc
 
 # 实现按任意键继续
 get_char() {
@@ -704,7 +710,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.5"
+    echo -e "	Version: 4.0.6"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
