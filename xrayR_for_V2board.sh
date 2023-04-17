@@ -27,7 +27,7 @@ if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
     apt remove -y httpd
     $INS ${local_tool}
 else
-    echo -e "${red}未检测到系统版本，本垃圾程序只支持Debian！，如果检测有误，请联系作者${plain}\n" && exit 1
+    echo -e "${red}未检测到系统版本，本垃圾程序只支持Debian！如果检测有误，请联系作者${plain}\n" && exit 1
 fi
 sys_bit=$(uname -m)
 if [[ ${sys_bit} != "x86_64" ]]; then
@@ -166,7 +166,7 @@ config_Cert() {
     cat >>${config_XrayR} <<EOF
             CertConfig:
                 CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, tls, dns. Choose "none" will forcedly disable the tls config.
-                CertDomain: "${network_domain}" # Domain to cert
+                CertDomain: "${network_host}" # Domain to cert
                 CertFile: "${TLS_CertFile}" # Provided if the CertMode is file
                 KeyFile: "${TLS_KeyFile}" # http default in /etc/XrayR/cert/certificates/
                 Email: "${Cert_Email}"
@@ -213,16 +213,29 @@ config_Email() {
     # local Cert_Email_Account=$(((RANDOM << 9)))
     # Cert_Email=${Cert_Email_Account}@gmail.com
     # 默认为二级子域名，${Domain_Srv#*\.} 取域名中第一个”.“右侧到结尾字符串
-    Cert_Email=admin@${network_domain#*\.}
+    Cert_Email=admin@${network_host#*\.}
 }
 
 config_GetNodeInfo() {
     NodeInfo_API="${Api_Host}/api/v1/server/UniProxy/config?token=${Api_Key}&node_type=${Node_Type,,}&node_id=${Node_ID}"
     NodeInfo_json=$(curl -s "${NodeInfo_API}" | jq .)
     
-    if [[ "${Node_Type}" == "V2ray" ]]; then
-        # 后端监听端口
-        inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
+    # 公共参数
+    # 对外连接域名，需接口增加 host 字段输出
+    network_host=$(echo ${NodeInfo_json} | jq -r '.host')
+    # 对外连接端口，需接口增加 port 字段输出
+    network_port=$(echo ${NodeInfo_json} | jq -r '.port')
+    # 后端监听端口
+    inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
+
+    if [[ "${Node_Type}" == "Trojan" ]]; then
+        # 加密方式：tls|xtls|none，Trojan强制tls
+        network_security="tls"
+        # 传输协议：tcp|grpc|ws才对接caddy,v2board默认只有tcp
+        network_protocol="tcp"
+        # 伪装serverName，回落对接用
+        network_sni=$(echo ${NodeInfo_json} | jq -r '.server_name')
+    elif [[ "${Node_Type}" == "V2ray" ]]; then
         # 加密方式：tls: 1 启用，不启用时怎么处理？
         network_security=$(echo ${NodeInfo_json} | jq -r '.tls')
         if [[ "${network_security}" == "1" ]]; then
@@ -234,22 +247,7 @@ config_GetNodeInfo() {
         network_sni=$(echo ${NodeInfo_json} | jq -r '.networkSettings.headers.Host')
         # 分流路径，回落对接用
         network_path=$(echo ${NodeInfo_json} | jq -r '.networkSettings.path')
-        # 配合自动解析，懒得指定连接域名，强制约定配置伪装serverName为连接域名
-        network_domain=${network_sni}
-    elif [[ "${Node_Type}" == "Trojan" ]]; then
-        # 后端监听端口
-        inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
-        # 加密方式：tls|xtls|none，Trojan强制tls
-        network_security="tls"
-        # 传输协议：tcp|grpc|ws才对接caddy,v2board默认只有tcp
-        network_protocol="tcp"
-        # 伪装serverName，回落对接用
-        network_sni=$(echo ${NodeInfo_json} | jq -r '.server_name')
-        # 配合自动解析，懒得指定连接域名，Trojan节点提供了连接域名
-        network_domain=$(echo ${NodeInfo_json} | jq -r '.host')
     elif [[ "${Node_Type}" == "Shadowsocks" ]]; then
-        # 后端监听端口
-        inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
         # 加密算法
         network_security=$(echo ${NodeInfo_json} | jq -r '.cipher')
         # 混淆方式
@@ -258,8 +256,6 @@ config_GetNodeInfo() {
         network_sni=$(echo ${NodeInfo_json} | jq -r '.obfs_settings.host')
         # 分流路径，回落对接用，没有接口，直接写死
         network_path=$(echo ${NodeInfo_json} | jq -r '.obfs_settings.path')
-        # 配合自动解析，懒得指定连接域名，强制约定混淆伪装域名即为连接域名
-        network_domain=${network_sni}
     else
         echo -e "${red}未知节点类型，或者接口不通，请检查${plain}"
         pause_press
@@ -317,7 +313,7 @@ config_caddy() {
 
     # Caddyfile格式
     cat >${caddy_config} <<EOF
-${network_domain} {
+${network_host}:${network_port} {
     root * /srv/www
     file_server
     log {
@@ -350,8 +346,8 @@ config_caddy_Shadowsocks() {
 
 # https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
 dns_update() {
-    CFZONE_NAME=${network_domain#*\.}
-    CFRECORD_NAME=${network_domain}
+    CFZONE_NAME=${network_host#*\.}
+    CFRECORD_NAME=${network_host}
     # If required settings are missing just exit
     if [[ -z ${CF_TOKEN_DNS} ]]; then
         echo "Missing api-key, get at: https://www.cloudflare.com/a/account/my-account"
@@ -565,7 +561,11 @@ config_set() {
 
     # 通过cloudflare解析域名，不支持cf，ml，tk，gq等烂大街的免费域名
     # CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
-    read -p "CloudFlare域名管理Token：" CF_TOKEN_DNS
+    CF_TOKEN_DNS=$(cat ~/.CF_DNS_API_TOKEN)
+    if [[ -z ${CF_TOKEN_DNS} ]]; then
+        read -p "CloudFlare域名管理Token：" CF_TOKEN_DNS
+        echo ${CF_TOKEN_DNS} > ~/.CF_DNS_API_TOKEN
+    fi
 
     # 从面板获取节点关键信息
     config_GetNodeInfo
@@ -576,14 +576,15 @@ config_set() {
     fi
     # 证书相关信息
     config_Email
-    TLS_CertFile="${tls_path}/${network_domain}.crt"
-    TLS_KeyFile="${tls_path}/${network_domain}.key"
+    TLS_CertFile="${tls_path}/${network_host}.crt"
+    TLS_KeyFile="${tls_path}/${network_host}.key"
 
     echo
     echo -e "\t面板类型：${green}V2bord${plain}"
     echo -e "\t节点类型：${green}${Node_Type}${plain}"
     echo -e "\t节点ID：${green}${Node_ID}${plain}"
-    echo -e "\t连接地址：${green}${network_domain}${plain}"
+    echo -e "\t对外连接地址：${green}${network_host}${plain}"
+    echo -e "\t对外连接端口：${green}${network_port}${plain}"
     echo -e "\t后端监听端口：${green}${inbound_port}${plain}"
     echo -e "\t传输协议：${green}${network_protocol}${plain}"
     echo -e "\t加密方式：${green}${network_security}${plain}"
@@ -591,12 +592,12 @@ config_set() {
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
     fi
     if [[ "${Node_Type}" == "V2ray" ]]; then
-        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
+        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
     fi
     if [[ "${Node_Type}" == "Shadowsocks" ]]; then
-        echo -e "\t混淆路径「path」：${green}${network_path}${plain}"
         echo -e "\t混淆域名「serverName」：${green}${network_sni}${plain}"
+        echo -e "\t混淆路径「path」：${green}${network_path}${plain}"
     fi
     echo
     read -p "以上信息确认正确就回车继续，否则请输 N 重来：" Check_All
@@ -710,7 +711,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.0.6"
+    echo -e "	Version: 4.1.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
