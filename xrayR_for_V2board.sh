@@ -13,7 +13,7 @@ config_rulefile="/etc/XrayR/rulelist"
 config_dnsfile="/etc/XrayR/dns.json"
 caddy_config="/etc/caddy/Caddyfile"
 tls_path="/srv/.cert"
-web_2048="https://github.com/cdnf/shell/raw/master/resource/www.zip"
+web_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
@@ -41,8 +41,8 @@ sed -i "/${cron_srv}/s/^#//" /etc/rsyslog.conf
 systemctl restart rsyslog
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
 ntpdate cn.pool.ntp.org && hwclock -w
-sed -i "/^.*ntpdate*/d" /etc/crontab
-sed -i "$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1" /etc/crontab
+sed -i '/^.*ntpdate*/d' /etc/crontab
+sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
 systemctl restart ${cron_srv}
 
 # 启用 ll 命令方便后续使用
@@ -235,7 +235,7 @@ config_GetNodeInfo() {
         network_protocol="tcp"
         # 伪装serverName，回落对接用
         network_sni=$(echo ${NodeInfo_json} | jq -r '.server_name')
-    elif [[ "${Node_Type}" == "V2ray" ]]; then
+    elif [[ "${Node_Type}" == "Vmess" ]]; then
         # 加密方式：tls: 1 启用，不启用时怎么处理？
         network_security=$(echo ${NodeInfo_json} | jq -r '.tls')
         if [[ "${network_security}" == "1" ]]; then
@@ -295,7 +295,7 @@ install_Caddy() {
 }
 install_web() {
     # 放个小游戏到/srv/www
-    wget --no-check-certificate -O www.zip $web_2048
+    wget --no-check-certificate -O www.zip $web_www
     unzip -o www.zip -d /srv/ && rm -f www.zip
 }
 config_caddy() {
@@ -320,12 +320,12 @@ ${network_host}:${network_port} {
         output file /var/log/caddy/access.log
     }
     tls ${Cert_Email}
-    @mywebsocket {
+    @${Node_Type}_${Node_ID} {
         path ${network_path}
         header Connection *Upgrade*
         header Upgrade websocket
     }
-    reverse_proxy @mywebsocket localhost:${inbound_port}
+    reverse_proxy @${Node_Type}_${Node_ID} localhost:${inbound_port}
 }
 EOF
     install_web
@@ -342,6 +342,38 @@ config_caddy_Vmess() {
 config_caddy_Shadowsocks() {
     echo "s"
 
+}
+
+# 输出配置信息，供其他程序离线使用
+config_info() {
+    conf_file="~/.config_info.json"
+    cat >${conf_file} <<EOF
+{
+    "api": {
+        "Api_Host": "${Api_Host}",
+        "Api_Key": "${Api_Key}"
+    },
+    "node": {
+        "Node_ID": "${Node_ID}",
+        "Node_Type": "${Node_Type}"
+    },
+    "dns": {
+        "CF_DNS_API_TOKEN": "${CF_TOKEN_DNS}"
+    },
+    "db": {
+        "DB_Host": "${DB_Host}",
+        "DB_Name": "${DB_Name}",
+        "DB_User": "${DB_User}",
+        "DB_PWD": "${DB_PWD}"
+    }
+}
+EOF
+}
+
+auto_Port(){
+    autoPort_url="https://github.com/cdnf/shell/raw/master/autoPort.sh"
+    wget -N --no-check-certificate -O autoPort.sh ${autoPort_url}
+    bash autoPort.sh
 }
 
 # https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
@@ -544,11 +576,11 @@ config_set() {
     read -p "面板里的节点ID：" Node_ID
     [ -z "${Node_ID}" ] && Node_ID=1
 
-    echo -e "[1] V2ray \t [2] Trojan \t [3] Shadowsocks"
-    read -p "节点类型（默认V2ray）：" node_num
+    echo -e "[1] Vmess \t [2] Trojan \t [3] Shadowsocks"
+    read -p "节点类型（默认Vmess）：" node_num
     [ -z "${node_num}" ] && node_num="1"
     if [[ "$node_num" == "1" ]]; then
-        Node_Type="V2ray"
+        Node_Type="Vmess"
     elif [[ "$node_num" == "2" ]]; then
         Node_Type="Trojan"
     elif [[ "$node_num" == "3" ]]; then
@@ -591,7 +623,7 @@ config_set() {
     if [[ "${Node_Type}" == "Trojan" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
     fi
-    if [[ "${Node_Type}" == "V2ray" ]]; then
+    if [[ "${Node_Type}" == "Vmess" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
         echo -e "\t分流路径「path」：${green}${network_path}${plain}"
     fi
@@ -638,7 +670,7 @@ config_set() {
         # if [[ "${Node_Type}" == "Trojan" ]]; then
         #     config_caddy_Trojan
         # fi
-        # if [[ "${Node_Type}" == "V2ray" ]]; then
+        # if [[ "${Node_Type}" == "Vmess" ]]; then
         #     config_caddy_Vmess
         # fi
         # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
@@ -711,12 +743,13 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.1.0"
+    echo -e "	Version: 4.2.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
     echo -e "\t2.新增nodes"
-    echo -e "\t3.开启系统Swap"
+    echo -e "\t3.开启定期更换端口"
+    echo -e "\t4.开启系统Swap"
     echo -e "\t9.卸载XrayR"
     echo -e "\t0.退出\n"
     echo
@@ -729,7 +762,7 @@ while [ 1 ]; do
         break
         ;;
     1)
-        install_XrayR $1
+        install_XrayR && config_info
         ;;
     2)
         config_set
@@ -737,6 +770,9 @@ while [ 1 ]; do
         XrayR restart && XrayR log
         ;;
     3)
+        auto_Port
+        ;;
+    4)
         get_Swap
         ;;
     9)
