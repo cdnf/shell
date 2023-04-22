@@ -115,7 +115,10 @@ EOF
 config_nodes() {
     if [[ ${Node_Type} == "Vmess" || ${Node_Type} == "V2ray" ]]; then
         XNode_Type="V2ray"
+    else
+        XNode_Type=${Node_Type}
     fi
+
     if [[ ! -f ${config_XrayR} ]]; then
         echo "配置文件不存在，请确认已安装XrayR"
         exit 1
