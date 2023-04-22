@@ -113,6 +113,9 @@ EOF
     echo -e "基础配置已写入 ${green}${config_XrayR}${plain}"
 }
 config_nodes() {
+    if [[ ${Node_Type} == "Vmess" || ${Node_Type} == "V2ray" ]]; then
+        XNode_Type="V2ray"
+    fi
     if [[ ! -f ${config_XrayR} ]]; then
         echo "配置文件不存在，请确认已安装XrayR"
         exit 1
@@ -124,7 +127,7 @@ config_nodes() {
             ApiHost: "${Api_Host}"
             ApiKey: "${Api_Key}"
             NodeID: "${Node_ID}"
-            NodeType: "${Node_Type}" # Node type: V2ray, Trojan, Shadowsocks, Shadowsocks-Plugin
+            NodeType: "${XNode_Type}" # Node type: V2ray, Trojan, Shadowsocks, Shadowsocks-Plugin
             Timeout: 30 # Timeout for the api request
             EnableVless: ${Enable_Vless} # Enable Vless for V2ray Type
             EnableXTLS: ${Enable_XTLS} # Enable XTLS for V2ray and Trojan
@@ -235,7 +238,7 @@ config_GetNodeInfo() {
         network_protocol="tcp"
         # 伪装serverName，回落对接用
         network_sni=$(echo ${NodeInfo_json} | jq -r '.server_name')
-    elif [[ "${Node_Type}" == "Vmess" ]]; then
+    elif [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         # 加密方式：tls: 1 启用，不启用时怎么处理？
         network_security=$(echo ${NodeInfo_json} | jq -r '.tls')
         if [[ "${network_security}" == "1" ]]; then
@@ -623,7 +626,7 @@ config_set() {
     if [[ "${Node_Type}" == "Trojan" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
     fi
-    if [[ "${Node_Type}" == "Vmess" ]]; then
+    if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
         echo -e "\t分流路径「path」：${green}${network_path}${plain}"
     fi
@@ -670,7 +673,7 @@ config_set() {
         # if [[ "${Node_Type}" == "Trojan" ]]; then
         #     config_caddy_Trojan
         # fi
-        # if [[ "${Node_Type}" == "Vmess" ]]; then
+        # if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         #     config_caddy_Vmess
         # fi
         # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
@@ -743,7 +746,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.0"
+    echo -e "	Version: 4.2.1"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
