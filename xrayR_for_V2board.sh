@@ -360,7 +360,7 @@ config_info() {
         "Node_Type": "${Node_Type}"
     },
     "dns": {
-        "CF_DNS_API_TOKEN": "${CF_TOKEN_DNS}"
+        "CF_TOKEN_DNS": "${CF_TOKEN_DNS}"
     },
     "db": {
         "DB_Host": "${DB_Host}",

@@ -20,7 +20,7 @@ if [[ -z $(mysql -V) ]]; then
 fi
 
 #===========================================#
-# Version: 0.1.1
+# Version: 0.1.2
 # Author: 金三将军
 # Homepage：
 # ------------------------------------------#
@@ -49,7 +49,7 @@ load_Config() {
     Api_Key=$(echo ${config_info} | jq -r '.api.Api_Key')
     Node_ID=$(echo ${config_info} | jq -r '.node.Node_ID')
     Node_Type=$(echo ${config_info} | jq -r '.node.Node_Type')
-    CF_DNS_API_TOKEN=$(echo ${config_info} | jq -r '.dns.CF_DNS_API_TOKEN')
+    CF_TOKEN_DNS=$(echo ${config_info} | jq -r '.dns.CF_TOKEN_DNS')
     DB_Host=$(echo ${config_info} | jq -r '.db.DB_Host')
     DB_Name=$(echo ${config_info} | jq -r '.db.DB_Name')
     DB_User=$(echo ${config_info} | jq -r '.db.DB_User')
@@ -141,15 +141,35 @@ set_Crontab() {
 
 # 操作数据库，将新端口同步到面板配置
 sync_DB() {
-    if [[ -z ${DB_Host} ]]; then
+    if [[ -z ${DB_Host} || -z ${DB_Name} || -z ${DB_User} || -z ${DB_PWD} ]]; then
         read -p "请配置数据库地址：" DB_Host
-    elif [[ -z ${DB_Name} ]]; then
         read -p "请配置数据库名称：" DB_Name
-    elif [[ -z ${DB_User} ]]; then
         read -p "请配置数据库用户：" DB_User
-    elif [[ -z ${DB_PWD} ]]; then
         read -p "请配置数据库密码：" DB_PWD
     fi
+
+    # 输出到配置文件保存
+    cat >~/.config_info.json <<EOF
+{
+    "api": {
+        "Api_Host": "${Api_Host}",
+        "Api_Key": "${Api_Key}"
+    },
+    "node": {
+        "Node_ID": "${Node_ID}",
+        "Node_Type": "${Node_Type}"
+    },
+    "dns": {
+        "CF_TOKEN_DNS": "${CF_TOKEN_DNS}"
+    },
+    "db": {
+        "DB_Host": "${DB_Host}",
+        "DB_Name": "${DB_Name}",
+        "DB_User": "${DB_User}",
+        "DB_PWD": "${DB_PWD}"
+    }
+}
+EOF
 
     db_table="v2_server_${Node_Type,,}"
     SQL="UPDATE ${db_table} SET port = ${port_new} WHERE ${db_table}.id = ${Node_ID}"
