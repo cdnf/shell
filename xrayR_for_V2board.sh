@@ -349,8 +349,7 @@ config_caddy_Shadowsocks() {
 
 # 输出配置信息，供其他程序离线使用
 config_info() {
-    conf_file="~/.config_info.json"
-    cat >${conf_file} <<EOF
+    cat >~/.config_info.json <<EOF
 {
     "api": {
         "Api_Host": "${Api_Host}",
@@ -746,7 +745,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.1"
+    echo -e "	Version: 4.2.2"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
