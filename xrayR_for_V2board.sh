@@ -598,10 +598,8 @@ config_set() {
 
     # 通过cloudflare解析域名，不支持cf，ml，tk，gq等烂大街的免费域名
     # CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
-    CF_TOKEN_DNS=$(cat ~/.CF_DNS_API_TOKEN)
     if [[ -z ${CF_TOKEN_DNS} ]]; then
         read -p "CloudFlare域名管理Token：" CF_TOKEN_DNS
-        echo ${CF_TOKEN_DNS} > ~/.CF_DNS_API_TOKEN
     fi
 
     # 从面板获取节点关键信息
@@ -684,7 +682,7 @@ config_set() {
         systemctl restart caddy
     elif [[ "$rules_num" == "2" ]]; then
         systemctl disable caddy; systemctl stop caddy
-        read -p "请选择证书申请模式：[1]http \t [2]dns \t [3]none" Cert_Mode
+        read -p "请选择证书申请模式：[1]http \t [2]dns \t [3]none ：" Cert_Mode
             case "${Cert_Mode}" in
             1)
                 Cert_Mode="http"
@@ -748,7 +746,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.2"
+    echo -e "	Version: 4.2.3"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
