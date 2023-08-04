@@ -281,9 +281,13 @@ install_Caddy() {
     github_user="lxhao61"
     github_repo="integrated-examples"
     github_file="caddy-linux-amd64.tar.gz"
-    github_latest
+    # latest_version
+    # github_latest
+    # caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
+    # Specify version
+    caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/20230412/${github_file}"
+    # offical from caddyserver
     # caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
-    caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
 
     
     # wget -N --no-check-certificate -O caddy ${caddy_url}
