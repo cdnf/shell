@@ -19,7 +19,11 @@ if [[ -z $(mysql -V) ]]; then
     apt install -y default-mysql-client
 fi
 
-##################################
+#===========================================#
+# Version: 0.1.2
+# Author: 金三将军
+# Homepage：
+# ------------------------------------------#
 # 1. 节点机：列出当前节点设置的访问端口和域名
 # 2. 节点机：随机一个端口，直到不与已启用端口冲突
 # 3. 节点机：同步新访问端口和host到caddy配置，并reload
@@ -29,15 +33,15 @@ fi
 # 7. 获取数据：network_host, network_port
 # 8. 数据操作：db_user, db_pwd
 # 9. 域名解析：CF_DNS_API_TOKEN
-##################################
+#===========================================#
 
 # 获取基础信息
 load_Config() {
     config_info=$(cat ~/.config_info.json | jq .)
     if [[ "$?" == 0 ]]; then
-        echo "${green}Get local config sucessed...${plain}"
+        echo -e "${green}Get local config sucessed...${plain}"
     else
-        echo "${red}Get local config failed, please check ~/.config_info.json${plain}"
+        echo -e "${red}Get local config failed, please check ~/.config_info.json${plain}"
         exit 1
     fi
 
@@ -45,7 +49,7 @@ load_Config() {
     Api_Key=$(echo ${config_info} | jq -r '.api.Api_Key')
     Node_ID=$(echo ${config_info} | jq -r '.node.Node_ID')
     Node_Type=$(echo ${config_info} | jq -r '.node.Node_Type')
-    CF_DNS_API_TOKEN=$(echo ${config_info} | jq -r '.dns.CF_DNS_API_TOKEN')
+    CF_TOKEN_DNS=$(echo ${config_info} | jq -r '.dns.CF_TOKEN_DNS')
     DB_Host=$(echo ${config_info} | jq -r '.db.DB_Host')
     DB_Name=$(echo ${config_info} | jq -r '.db.DB_Name')
     DB_User=$(echo ${config_info} | jq -r '.db.DB_User')
@@ -56,9 +60,9 @@ load_Config() {
 query_Host_Port() {
     api_url="${Api_Host}/api/v1/server/UniProxy/config?token=${Api_Key}&node_type=${Node_Type,,}&node_id=${Node_ID}"
     if [[ "$?" == 0 ]]; then
-        echo "${green}Get data from api sucessed...${plain}"
+        echo -e "${green}Get data from api sucessed...${plain}"
     else
-        echo "${red}Get data from api failed, please check...${plain}"
+        echo -e "${red}Get data from api failed, please check...${plain}"
         exit 2
     fi
     api_data=$(curl -s "${api_url}" | jq .)
@@ -90,12 +94,12 @@ random_Num() {
 
 # 随机新端口，不能与现有端口冲突
 new_Port() {
-    echo "random port is ${port_new}"
+    echo -e "random port is ${port_new}"
     while [[ -n ${port_exist} ]];
     do  
         random_Num
     done
-    echo "Now, the new port is ${green}${port_new}${plain}"
+    echo -e "Now, the new port is ${green}${port_new}${plain}"
 }
 
 # 同步到前端caddy
@@ -104,7 +108,13 @@ set_Caddy() {
     sed -i "s|${network_host}:${network_port}|${network_host}:${port_new}|" ${Caddyfile}
     sed -i "s|@${Node_Type}_${Node_ID} localhost:.*|@${Node_Type}_${Node_ID} localhost:${inbound_port}|" ${Caddyfile}
     systemctl reload caddy || systemctl restart caddy
-    echo "caddy reloaded"
+
+    if [[ "$?" == 0 ]]; then
+        echo -e "caddy has been reloaded new port: ${green}${port_new}${plain}"
+    else
+        echo -e "${red}caddy  reloaded failed, please check...${plain}"
+        exit 1
+    fi
 }
 
 # 添加到系统定时任务
@@ -117,37 +127,57 @@ set_Crontab() {
     sed -i '$a\30 3 * * * root autoPort >> /dev/null 2>&1' /etc/crontab
 
     if [[ "$?" == 0 ]]; then
-        echo "${green}$ {file_sh} has been add in cron task ${plain}"
+        echo -e "${green}${file_sh}${plain} has been add in cron task"
     else
-        echo "${red} DB operate failed, please check... ${plain}"
+        echo -e "${red}DB operate failed, please check...${plain}"
         exit 1
     fi
     systemctl restart cron
     echo
-    echo "the file of shell is ${file_sh}"
+    echo -e "the file of shell is ${file_sh}"
     echo
     echo "and you can use command: autoPort"
 }
 
 # 操作数据库，将新端口同步到面板配置
 sync_DB() {
-    if [[ -z ${DB_Host} ]]; then
+    if [[ -z ${DB_Host} || -z ${DB_Name} || -z ${DB_User} || -z ${DB_PWD} ]]; then
         read -p "请配置数据库地址：" DB_Host
-    elif [[ -z ${DB_Name} ]]; then
         read -p "请配置数据库名称：" DB_Name
-    elif [[ -z ${DB_User} ]]; then
         read -p "请配置数据库用户：" DB_User
-    elif [[ -z ${DB_PWD} ]]; then
         read -p "请配置数据库密码：" DB_PWD
     fi
+
+    # 输出到配置文件保存
+    cat >~/.config_info.json <<EOF
+{
+    "api": {
+        "Api_Host": "${Api_Host}",
+        "Api_Key": "${Api_Key}"
+    },
+    "node": {
+        "Node_ID": "${Node_ID}",
+        "Node_Type": "${Node_Type}"
+    },
+    "dns": {
+        "CF_TOKEN_DNS": "${CF_TOKEN_DNS}"
+    },
+    "db": {
+        "DB_Host": "${DB_Host}",
+        "DB_Name": "${DB_Name}",
+        "DB_User": "${DB_User}",
+        "DB_PWD": "${DB_PWD}"
+    }
+}
+EOF
 
     db_table="v2_server_${Node_Type,,}"
     SQL="UPDATE ${db_table} SET port = ${port_new} WHERE ${db_table}.id = ${Node_ID}"
     mysql -h"${DB_Host}" -u"${DB_User}" -p"${DB_PWD}" -D"${DB_Name}" -B -e "$SQL"
     if [[ "$?" == 0 ]]; then
-        echo "${green}new port has updated to the panel${plain}"
+        echo -e "new port: ${green}${port_new}${plain} has updated to the panel"
     else
-        echo "${red}DB operate failed, please check...${plain}"
+        echo -e "${red}DB operate failed, please check...${plain}"
         exit 2
     fi
 }
@@ -164,7 +194,7 @@ tcping_Install() {
     if [[ $tcp_help ]]; then
         echo -e "很好，tcping ${yellow}安装成功 ${none}"
     else
-        echo -e "tcping 命令不成功，安装失败了，检查下 ${none}"
+        echo -e "${red}tcping 命令不成功，安装失败了，检查下 ${none}"
     fi
 }
 tcping_Test() {

@@ -113,6 +113,12 @@ EOF
     echo -e "基础配置已写入 ${green}${config_XrayR}${plain}"
 }
 config_nodes() {
+    if [[ ${Node_Type} == "Vmess" || ${Node_Type} == "V2ray" ]]; then
+        XNode_Type="V2ray"
+    else
+        XNode_Type=${Node_Type}
+    fi
+
     if [[ ! -f ${config_XrayR} ]]; then
         echo "配置文件不存在，请确认已安装XrayR"
         exit 1
@@ -124,7 +130,7 @@ config_nodes() {
             ApiHost: "${Api_Host}"
             ApiKey: "${Api_Key}"
             NodeID: "${Node_ID}"
-            NodeType: "${Node_Type}" # Node type: V2ray, Trojan, Shadowsocks, Shadowsocks-Plugin
+            NodeType: "${XNode_Type}" # Node type: V2ray, Trojan, Shadowsocks, Shadowsocks-Plugin
             Timeout: 30 # Timeout for the api request
             EnableVless: ${Enable_Vless} # Enable Vless for V2ray Type
             EnableXTLS: ${Enable_XTLS} # Enable XTLS for V2ray and Trojan
@@ -235,7 +241,7 @@ config_GetNodeInfo() {
         network_protocol="tcp"
         # 伪装serverName，回落对接用
         network_sni=$(echo ${NodeInfo_json} | jq -r '.server_name')
-    elif [[ "${Node_Type}" == "Vmess" ]]; then
+    elif [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         # 加密方式：tls: 1 启用，不启用时怎么处理？
         network_security=$(echo ${NodeInfo_json} | jq -r '.tls')
         if [[ "${network_security}" == "1" ]]; then
@@ -350,8 +356,7 @@ config_caddy_Shadowsocks() {
 
 # 输出配置信息，供其他程序离线使用
 config_info() {
-    conf_file="~/.config_info.json"
-    cat >${conf_file} <<EOF
+    cat >~/.config_info.json <<EOF
 {
     "api": {
         "Api_Host": "${Api_Host}",
@@ -362,7 +367,7 @@ config_info() {
         "Node_Type": "${Node_Type}"
     },
     "dns": {
-        "CF_DNS_API_TOKEN": "${CF_TOKEN_DNS}"
+        "CF_TOKEN_DNS": "${CF_TOKEN_DNS}"
     },
     "db": {
         "DB_Host": "${DB_Host}",
@@ -597,10 +602,8 @@ config_set() {
 
     # 通过cloudflare解析域名，不支持cf，ml，tk，gq等烂大街的免费域名
     # CF_Token=$(cat ~/.acme.sh/account.conf | grep SAVED_CF_Token= | awk -F "'" '{print $2}')
-    CF_TOKEN_DNS=$(cat ~/.CF_DNS_API_TOKEN)
     if [[ -z ${CF_TOKEN_DNS} ]]; then
         read -p "CloudFlare域名管理Token：" CF_TOKEN_DNS
-        echo ${CF_TOKEN_DNS} > ~/.CF_DNS_API_TOKEN
     fi
 
     # 从面板获取节点关键信息
@@ -627,7 +630,7 @@ config_set() {
     if [[ "${Node_Type}" == "Trojan" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
     fi
-    if [[ "${Node_Type}" == "Vmess" ]]; then
+    if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
         echo -e "\t分流路径「path」：${green}${network_path}${plain}"
     fi
@@ -674,7 +677,7 @@ config_set() {
         # if [[ "${Node_Type}" == "Trojan" ]]; then
         #     config_caddy_Trojan
         # fi
-        # if [[ "${Node_Type}" == "Vmess" ]]; then
+        # if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
         #     config_caddy_Vmess
         # fi
         # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
@@ -683,7 +686,7 @@ config_set() {
         systemctl restart caddy
     elif [[ "$rules_num" == "2" ]]; then
         systemctl disable caddy; systemctl stop caddy
-        read -p "请选择证书申请模式：[1]http \t [2]dns \t [3]none" Cert_Mode
+        read -p "请选择证书申请模式：[1]http \t [2]dns \t [3]none ：" Cert_Mode
             case "${Cert_Mode}" in
             1)
                 Cert_Mode="http"
@@ -747,7 +750,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.0"
+    echo -e "	Version: 4.2.3"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
