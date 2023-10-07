@@ -12,6 +12,7 @@ config_XrayR="/etc/XrayR/config.yml"
 config_rulefile="/etc/XrayR/rulelist"
 config_dnsfile="/etc/XrayR/dns.json"
 caddy_config="/etc/caddy/Caddyfile"
+# tls file by caddy: /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory
 tls_path="/srv/.cert"
 web_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 # check root
