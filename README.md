@@ -6,4 +6,4 @@
 </a>
 
 ### [Depay Card：USDT--> `1:0.99` --> USD](https://sobaigu.com/mastercad-visa-pay-with-usd-usdt.html)
-[![Depay Card](https://www.depay.one/img/introduce2.png)](https://sobaigu.com/mastercad-visa-pay-with-usd-usdt.html)
+[![Depay Card](https://www.dupay.one/img/faq9.png)](https://sobaigu.com/mastercad-visa-pay-with-usd-usdt.html)
