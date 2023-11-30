@@ -19,7 +19,7 @@ web_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
 # 安装基础依赖
-local_tool="wget curl git unzip gzip tar screen lrzsz socat ntpdate jq cron dnsutils net-tools file"
+local_tool="wget curl git unzip gzip tar screen lrzsz socat jq cron dnsutils net-tools file ntpdate systemd-timesyncd"
 if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
     os="debian"
     cron_srv="cron"
@@ -41,10 +41,10 @@ ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 sed -i "/${cron_srv}/s/^#//" /etc/rsyslog.conf
 systemctl restart rsyslog
 #添加系统定时任务自动同步时间并把写入到BIOS，重启定时任务服务
-ntpdate cn.pool.ntp.org && hwclock -w
-sed -i '/^.*ntpdate*/d' /etc/crontab
-sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
-systemctl restart ${cron_srv}
+# ntpdate cn.pool.ntp.org && hwclock -w
+# sed -i '/^.*ntpdate*/d' /etc/crontab
+# sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
+# systemctl restart ${cron_srv}
 
 # 启用 ll 命令方便后续使用
 sed -i "s|^# export LS_OPTIONS|export LS_OPTIONS|" ~/.bashrc
@@ -751,7 +751,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.3"
+    echo -e "	Version: 4.2.4"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
