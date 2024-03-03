@@ -46,7 +46,6 @@ if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
     cron_srv="cron"
     INS="apt -y install"
     apt -y update
-    apt remove -y httpd
     $INS ${local_tool}
 else
     red "未检测到系统版本，本垃圾程序只支持Debian！如果检测有误，请联系作者\n" && exit 1
@@ -319,6 +318,7 @@ install_Caddy() {
     # 安装caddy前先禁用其他网站程序
     systemctl disable nginx; systemctl stop nginx
     systemctl disable httpd; systemctl stop httpd
+    systemctl disable apache2; systemctl stop apache2
 
     $INS debian-keyring debian-archive-keyring apt-transport-https
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
@@ -345,16 +345,9 @@ install_Caddy() {
     wget -N --no-check-certificate -O caddy.tar.gz ${caddy_url}
     tar zxvf caddy.tar.gz caddy && rm -f caddy.tar.gz
     mv /usr/bin/caddy{,.bak} && mv -f caddy "/usr/bin/caddy" && chmod +x "/usr/bin/caddy"
-    echo
-    green "Caddy2 安装完成"
-}
-install_web() {
-    # 放个小游戏到/srv/www
-    web_www="${resource}/www.zip"
-    wget --no-check-certificate -O www.zip $web_www
-    unzip -o www.zip -d /srv/ && rm -f www.zip
-}
-config_caddy() {
+
+    install_web
+
     # keys：domain，port，tls，path/sni
     caddy_config_path=$(echo ${caddy_config%/*})
     if [[ ! -d ${caddy_config_path} ]]; then
@@ -364,29 +357,15 @@ config_caddy() {
     cp -f ${caddy_config}{,_$(date +"%Y%m%d")}
     sed -i "s|^ExecStart.*|ExecStart=/usr/bin/caddy run --environ --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
     sed -i "s|^ExecReload.*|ExecReload=/usr/bin/caddy reload --force --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
+    systemctl daemon-reload
 
-    # Caddyfile 格式
-    # rm -f /etc/caddy/Caddyfile
-#     cat >${caddy_config} <<EOF
-# ${network_host}:${network_port} {
-#     root * /srv/www
-#     file_server
-#     log {
-#         output file /var/log/caddy/access.log
-#     }
-#     tls ${Cert_Email}
-#     @${Node_Type}_${Node_ID} {
-#         path ${network_path}
-#         header Connection *Upgrade*
-#         header Upgrade websocket
-#     }
-#     reverse_proxy @${Node_Type}_${Node_ID} localhost:${server_port}
-# }
-# EOF
-
-    config_caddy_base && config_caddy_tls
-    install_web
-    systemctl daemon-reload && systemctl restart caddy
+    green "Caddy2 安装完成"
+}
+install_web() {
+    # 放个小游戏到/srv/www
+    web_www="${resource}/www.zip"
+    wget --no-check-certificate -O www.zip $web_www
+    unzip -o www.zip -d /srv/ && rm -f www.zip
 }
 
 config_caddy_base() {
@@ -637,6 +616,16 @@ EOF
     sed -i "s/^\/\/.*$//" ${json_name}
     caddy_sni=$(cat ${json_name})
     rm -f ${json_name}
+
+    caddy_json=$(cat ${caddy_config})
+    exist_sni=$(echo ${caddy_json} | jq .apps.layer4.servers.servers.sni.routes.match.tls.sni[])
+    contains ${exist_sni} ${network_sni}
+
+    if [ $? ]; then
+        green "${network_sni} is in the certificates automate list, do nothing"
+    else
+        echo -e ${caddy_json} ${caddy_sni} | jq -s add > ${caddy_config}
+    fi
 }
 
 config_caddy_Vmess() {
@@ -687,7 +676,16 @@ EOF
     sed -i "s/^\/\/.*$//" ${json_name}
     caddy_Vmess=$(cat ${json_name})
     rm -f ${json_name}
-    
+
+    caddy_json=$(cat ${caddy_config})
+    exist_path=$(echo ${caddy_json} | jq .apps.http.servers.srvh2.routes.match.path[])
+    contains ${exist_path} ${network_path}
+
+    if [ $? ]; then
+        green "${network_path} is in the certificates automate list, do nothing"
+    else
+        echo -e ${caddy_json} ${caddy_Vmess} | jq -s add > ${caddy_config}
+    fi
 }
 
 config_caddy_Vless() {
@@ -876,39 +874,17 @@ srv_frame() {
     read -p "请选择方案组合（默认 1）：" front_srv
     [[ -z "${front_srv}" ]] && front_srv="1"
 
-    if [[ "$front_srv" == "1" ]]; then
-        # 由caddy管理证书
+    case ${front_srv} in
+      1)
         Cert_Mode="none"
-
-        # 未完待续
-        # if [[ "${Node_Type}" == "Trojan" ]]; then
-        #     config_caddy_Trojan
-        # fi
-        # if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
-        #     config_caddy_Vmess
-        # fi
-        # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
-        #     config_caddy_Shadowsocks
-        # fi
-
-    elif [[ "$front_srv" == "2" ]]; then
-        read -p "请选择证书申请模式：[1]none \t [2]file ：" Cert_Mode
-            case "${Cert_Mode}" in
-            1)
-                Cert_Mode="none"
-                ;;
-            2)
-                Cert_Mode="file"
-                ;;
-            *)
-                echo "请输入正确数字:"
-                ;;
-            esac
-    else
-        echo
-        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
-    fi
-
+        ;;
+      2)
+        Cert_Mode="file"
+        ;;
+      *)
+        echo "请输入正确数字[1-2]:"
+        ;;
+    esac
 }
 
 
@@ -991,7 +967,7 @@ install_XrayR() {
     #     cp rulelist /etc/XrayR/
     # fi
     if [[ ! -f ${config_XrayR} ]]; then
-        config_set
+        config_set && srv_frame
         config_init && config_nodes
         config_Cert
         echo
@@ -1012,17 +988,12 @@ install_XrayR() {
     fi
     # 安装管理工具
     XrayR_tool
-    echo
-    echo "安装完成，正在尝试重启XrayR服务..."
-    echo
-    XrayR restart
+
     if [[ -f /usr/sbin/firewalld ]]; then
         echo "正在关闭防火墙！"
         systemctl disable firewalld
         systemctl stop firewalld
     fi
-    echo
-    echo "XrayR服务已经完成重启，请愉快地享用！"
     pause_press
 }
 
@@ -1126,8 +1097,19 @@ config_set() {
     # 偷懒自动解析域名，只支持cloudflare
     dns_update
 
-    # 证书由caddy接管，XrayR也可以使用caddy已申请的file
-    Cert_Mode="none"
+    if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
+        config_caddy_Vmess
+    fi
+    if [[ "${Node_Type}" == "Vless" ]]; then
+        config_caddy_Vless
+    fi
+    if [[ "${Node_Type}" == "Trojan" ]]; then
+        config_caddy_Trojan
+    fi
+    if [[ "${Node_Type}" == "Shadowsocks" ]]; then
+        config_caddy_Shadowsocks
+    fi
+
 }
 
 # 菜单
@@ -1135,7 +1117,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 0.1.0"
+    echo -e "	Version: 0.1.2"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
@@ -1150,31 +1132,35 @@ menu() {
 while [[ 1 ]]; do
     menu
     case "${menu_Num}" in
-    0)
-        break
-        ;;
-    1)
-        install_XrayR && config_info && srv_frame
-        install_Caddy && config_caddy
-        ;;
-    2)
-        config_set
-        config_nodes && config_Cert
-        XrayR restart && XrayR log
-        ;;
-    3)
-        auto_Port
-        ;;
-    4)
-        get_Swap
-        ;;
-    9)
-        XrayR_tool
-        XrayR uninstall
-        ;;
-    *)
-        echo "请输入正确数字:"
-        ;;
+      0)
+          break
+          ;;
+      1)
+          install_XrayR
+          config_info && install_Caddy
+          config_caddy_base && config_caddy_tls
+          green "安装完成，正在尝试重启服务..."
+          systemctl restart caddy
+          XrayR restart
+          ;;
+      2)
+          config_set
+          config_nodes && config_Cert
+          XrayR restart && XrayR log
+          ;;
+      3)
+          auto_Port
+          ;;
+      4)
+          get_Swap
+          ;;
+      9)
+          XrayR_tool
+          XrayR uninstall
+          ;;
+      *)
+          echo "请输入正确数字:"
+          ;;
     esac
 done
 clear
