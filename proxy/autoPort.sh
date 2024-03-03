@@ -2,10 +2,26 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
 export PATH
 
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-plain='\033[0m'
+export LC_ALL=C
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
+
+# fonts color
+red() {
+    echo -e "\033[31m\033[01m$1\033[0m"
+}
+green() {
+    echo -e "\033[32m\033[01m$1\033[0m"
+}
+yellow() {
+    echo -e "\033[33m\033[01m$1\033[0m"
+}
+blue() {
+    echo -e "\033[34m\033[01m$1\033[0m"
+}
+bold() {
+    echo -e "\033[1m\033[01m$1\033[0m"
+}
 
 cmd=$(apt -v)
 if [[ -z $cmd ]]; then
@@ -20,7 +36,7 @@ if [[ -z $(mysql -V) ]]; then
 fi
 
 #===========================================#
-# Version: 0.1.2
+# Version: 0.1.3
 # Author: 金三将军
 # Homepage：
 # ------------------------------------------#
@@ -39,9 +55,9 @@ fi
 load_Config() {
     config_info=$(cat ~/.config_info.json | jq .)
     if [[ "$?" == 0 ]]; then
-        echo -e "${green}Get local config sucessed...${plain}"
+        green "Get local config sucessed..."
     else
-        echo -e "${red}Get local config failed, please check ~/.config_info.json${plain}"
+        red "Get local config failed, please check ~/.config_info.json"
         exit 1
     fi
 
@@ -60,9 +76,9 @@ load_Config() {
 query_Host_Port() {
     api_url="${Api_Host}/api/v1/server/UniProxy/config?token=${Api_Key}&node_type=${Node_Type,,}&node_id=${Node_ID}"
     if [[ "$?" == 0 ]]; then
-        echo -e "${green}Get data from api sucessed...${plain}"
+        green "Get data from api sucessed..."
     else
-        echo -e "${red}Get data from api failed, please check...${plain}"
+        red "Get data from api failed, please check..."
         exit 2
     fi
     api_data=$(curl -s "${api_url}" | jq .)
@@ -75,18 +91,18 @@ query_Host_Port() {
     inbound_port=$(echo ${api_data} | jq -r '.server_port')
 
     echo
-    echo -e "\t节点ID：${green}${Node_ID}${plain}"
-    echo -e "\t节点类型：${green}${Node_Type}${plain}"
-    echo -e "\t对外连接地址：${green}${network_host}${plain}"
-    echo -e "\t对外连接端口：${green}${network_port}${plain}"
-    echo -e "\t后端监听端口：${green}${inbound_port}${plain}"
+    green "\t节点ID：${Node_ID}"
+    green "\t节点类型：${Node_Type}"
+    green "\t对外连接地址：${network_host}"
+    green "\t对外连接端口：${network_port}"
+    green "\t后端监听端口：${inbound_port}"
 }
 
 # 生成随机数
 random_Num() {
     # 指定随机数范围
     echo "starting generate random number"
-    arr=($(seq 1000 10000))
+    arr=($(seq 20000 30000))
     num=${#arr[*]}
     port_new=${arr[$(($RANDOM % num))]}
     port_exist=$(netstat -na | awk '{print $4}' | grep ":" | awk -F ':' '{print $NF}' | awk '!a[$1]++{print}' | grep ${port_new})
@@ -99,7 +115,7 @@ new_Port() {
     do  
         random_Num
     done
-    echo -e "Now, the new port is ${green}${port_new}${plain}"
+    green "Now, the new port is ${port_new}"
 }
 
 # 同步到前端caddy
@@ -110,9 +126,9 @@ set_Caddy() {
     systemctl reload caddy || systemctl restart caddy
 
     if [[ "$?" == 0 ]]; then
-        echo -e "caddy has been reloaded new port: ${green}${port_new}${plain}"
+        green "caddy has been reloaded new port: ${port_new}"
     else
-        echo -e "${red}caddy  reloaded failed, please check...${plain}"
+        red "caddy  reloaded failed, please check..."
         exit 1
     fi
 }
@@ -127,9 +143,9 @@ set_Crontab() {
     sed -i '$a\30 3 * * * root autoPort >> /dev/null 2>&1' /etc/crontab
 
     if [[ "$?" == 0 ]]; then
-        echo -e "${green}${file_sh}${plain} has been add in cron task"
+        green "${file_sh} has been add in cron task"
     else
-        echo -e "${red}DB operate failed, please check...${plain}"
+        red "DB operate failed, please check..."
         exit 1
     fi
     systemctl restart cron
@@ -175,9 +191,9 @@ EOF
     SQL="UPDATE ${db_table} SET port = ${port_new} WHERE ${db_table}.id = ${Node_ID}"
     mysql -h"${DB_Host}" -u"${DB_User}" -p"${DB_PWD}" -D"${DB_Name}" -B -e "$SQL"
     if [[ "$?" == 0 ]]; then
-        echo -e "new port: ${green}${port_new}${plain} has updated to the panel"
+        green "new port: ${port_new} has updated to the panel"
     else
-        echo -e "${red}DB operate failed, please check...${plain}"
+        green "DB operate failed, please check..."
         exit 2
     fi
 }

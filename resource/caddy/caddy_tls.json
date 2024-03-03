@@ -1,0 +1,16 @@
+{
+  "apps": {
+    "tls": {
+      "certificates": {
+        "automate": [
+          "${network_host}"
+        ] //自动化管理 TLS 证书，域名添加到数组
+      }
+      //automation
+    }
+    //http
+  }
+}
+// 1、若域名为 x.y，那么从 Let's Encrypt 申请的普通 TLS 证书在 ‘${root}/certificates/acme-v02.api.letsencrypt.org-directory/x.y’ 目录中。${root} 为存放 TLS 证书的基本路径，目录随域名变化
+// 2、若域名为 x.y，那么从 ZeroSSL 申请的普通 TLS 证书在 ‘${root}/certificates/acme.zerossl.com-v2-dv90/x.y’ 目录中
+// 3、本配置仅支持申请普通 TLS 证书，若要申请通配符 TLS 证书请参考 ‘Caddy(Other Configuration) （Caddy 的特殊应用配置方法。）’ 中对应介绍及对应配置示例

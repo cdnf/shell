@@ -2,21 +2,42 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
 export PATH
 
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-plain='\033[0m'
+export LC_ALL=C
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
 
 cur_dir=$(pwd)
+resource="https://github.com/cdnf/shell/raw/master/resource"
 config_XrayR="/etc/XrayR/config.yml"
 config_rulefile="/etc/XrayR/rulelist"
 config_dnsfile="/etc/XrayR/dns.json"
-caddy_config="/etc/caddy/Caddyfile"
-# tls file by caddy: /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory
-tls_path="/srv/.cert"
-web_www="https://github.com/cdnf/shell/raw/master/resource/www.zip"
+caddy_config="/etc/caddy/Caddyfile.json"
+# 若域名为 x.y，那么从 Let's Encrypt 申请的普通 TLS 证书在 ‘${root}/certificates/acme-v02.api.letsencrypt.org-directory/x.y’ 目录中
+# 若域名为 x.y，那么从 ZeroSSL 申请的普通 TLS 证书在 ‘${root}/certificates/acme.zerossl.com-v2-dv90/x.y’ 目录中
+tls_path="/var/tls" # caddy 存放 TLS 证书的基本路径
+tls_module="acme" #acme=从 Let's Encrypt 申请 TLS 证书，zerossl=从 ZeroSSL 申请 TLS 证书
+port_http1=8080 # HTTP/1.1 server 及 H2C server 本地监听端口
+port_http2=8443 # HTTP/2 server 本地监听端口
+
+# fonts color
+red() {
+    echo -e "\033[31m\033[01m$1\033[0m"
+}
+green() {
+    echo -e "\033[32m\033[01m$1\033[0m"
+}
+yellow() {
+    echo -e "\033[33m\033[01m$1\033[0m"
+}
+blue() {
+    echo -e "\033[34m\033[01m$1\033[0m"
+}
+bold() {
+    echo -e "\033[1m\033[01m$1\033[0m"
+}
+
 # check root
-[[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
+[[ $EUID -ne 0 ]] && red "错误：必须使用root用户运行此脚本！\n" && exit 1
 
 # 安装基础依赖
 local_tool="wget curl git unzip gzip tar screen lrzsz socat jq cron dnsutils net-tools file ntpdate systemd-timesyncd"
@@ -28,7 +49,7 @@ if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
     apt remove -y httpd
     $INS ${local_tool}
 else
-    echo -e "${red}未检测到系统版本，本垃圾程序只支持Debian！如果检测有误，请联系作者${plain}\n" && exit 1
+    red "未检测到系统版本，本垃圾程序只支持Debian！如果检测有误，请联系作者\n" && exit 1
 fi
 sys_bit=$(uname -m)
 if [[ ${sys_bit} != "x86_64" ]]; then
@@ -47,10 +68,10 @@ systemctl restart rsyslog
 # systemctl restart ${cron_srv}
 
 # 启用 ll 命令方便后续使用
-sed -i "s|^# export LS_OPTIONS|export LS_OPTIONS|" ~/.bashrc
-sed -i "s|^# eval |eval |" ~/.bashrc
-sed -i "s|^# alias l|alias l|g" ~/.bashrc
-source ~/.bashrc
+# sed -i "s|^# export LS_OPTIONS|export LS_OPTIONS|" ~/.bashrc
+# sed -i "s|^# eval |eval |" ~/.bashrc
+# sed -i "s|^# alias l|alias l|g" ~/.bashrc
+# source ~/.bashrc
 
 # 实现按任意键继续
 get_char() {
@@ -76,6 +97,20 @@ pause_press() {
         char=$(get_char)
     fi
 }
+# list_include_item
+# contains aList anItem
+# echo $? # 0： match, 1: failed
+contains () {
+    aList=$1
+    anItem=$2
+    amsg=$(echo ${aList} | grep ${anItem})
+    if [[ ${amsg} ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 get_Swap() {
     swap_now=$(swapon --show)
     if [[ -z $swap_now ]]; then
@@ -111,7 +146,7 @@ ConnectionConfig:
   BufferSize: 64 # The internal cache size of each connection, kB
 Nodes:
 EOF
-    echo -e "基础配置已写入 ${green}${config_XrayR}${plain}"
+    green "基础配置已写入 ${config_XrayR}"
 }
 config_nodes() {
     if [[ ${Node_Type} == "Vmess" || ${Node_Type} == "V2ray" ]]; then
@@ -144,6 +179,10 @@ config_nodes() {
             UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
             EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
             DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
+            DisableUploadTraffic: false # Disable Upload Traffic to the panel
+            DisableGetRule: false # Disable Get Rule from the panel
+            DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks
+            DisableSniffing: false # Disable domain sniffing 
             EnableProxyProtocol: ${Enable_ProxyProtocol} # Only works for WebSocket and TCP
             AutoSpeedLimitConfig:
                 Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
@@ -163,15 +202,16 @@ config_nodes() {
                     SNI: # TLS SNI(Server Name Indication), Empty for any
                     Alpn: # Alpn, Empty for any
                     Path: # HTTP PATH, Empty for any
-                    Dest: "80" # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
+                    Dest: "${port_http1}" # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
                     ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
 EOF
-        echo -e "节点配置已写入 ${green}${config_XrayR}${plain}"
+        green "节点配置已写入 ${config_XrayR}"
     fi
 }
 config_Cert() {
     cat >>${config_XrayR} <<EOF
             CertConfig:
+                RejectUnknownSni: false # Reject unknown SNI
                 CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, tls, dns. Choose "none" will forcedly disable the tls config.
                 CertDomain: "${network_host}" # Domain to cert
                 CertFile: "${TLS_CertFile}" # Provided if the CertMode is file
@@ -184,22 +224,6 @@ EOF
     elif [[ ${dns_Provider} == "cloudflare" ]]; then
         config_Provider_cloudflare
     fi
-}
-config_Provider_dnspod() {
-    cat >>${config_XrayR} <<EOF
-                Provider: "dnspod" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
-                DNSEnv: # DNS ENV option used by DNS provider
-                    DNSPOD_API_KEY: "${SECRET_KEY}"
-EOF
-}
-config_Provider_cloudflare() {
-    cat >>${config_XrayR} <<EOF
-                Provider: "cloudflare" # DNS cert provider: alidns, cloudflare, dnspod, namesilo. Get the full support list here: https://go-acme.github.io/lego/dns/
-                DNSEnv: # DNS ENV option used by DNS provider
-                    # CF_API_EMAIL: "${CF_USER}"
-                    # CF_API_KEY: "${SECRET_KEY}"
-                    CF_DNS_API_TOKEN: "${SECRET_KEY}"
-EOF
 }
 
 config_XrayR_dns() {
@@ -222,6 +246,20 @@ config_Email() {
     # 默认为二级子域名，${Domain_Srv#*\.} 取域名中第一个”.“右侧到结尾字符串
     Cert_Email=admin@${network_host#*\.}
 }
+# 申请TLS证书
+config_TLS() {
+    # 使用caddy申请的证书相关信息
+    config_Email
+    
+    if [[ "${tls_module}" == "acme" ]]; then
+        tls_module_path="certificates/acme-v02.api.letsencrypt.org-directory"
+    elif [[ "${tls_module}" == "zerossl" ]]; then
+        tls_module_path="certificates/acme.zerossl.com-v2-dv90"
+    fi
+    TLS_CertFile="${tls_path}/${tls_module_path}/${network_host}/${network_host}.crt"
+    TLS_KeyFile="${tls_path}/${tls_module_path}/${network_host}/${network_host}.key"
+
+}
 
 config_GetNodeInfo() {
     NodeInfo_API="${Api_Host}/api/v1/server/UniProxy/config?token=${Api_Key}&node_type=${Node_Type,,}&node_id=${Node_ID}"
@@ -233,7 +271,7 @@ config_GetNodeInfo() {
     # 对外连接端口，需接口增加 port 字段输出
     network_port=$(echo ${NodeInfo_json} | jq -r '.port')
     # 后端监听端口
-    inbound_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
+    server_port=$(echo ${NodeInfo_json} | jq -r '.server_port')
 
     if [[ "${Node_Type}" == "Trojan" ]]; then
         # 加密方式：tls|xtls|none，Trojan强制tls
@@ -264,7 +302,7 @@ config_GetNodeInfo() {
         # 分流路径，回落对接用，没有接口，直接写死
         network_path=$(echo ${NodeInfo_json} | jq -r '.obfs_settings.path')
     else
-        echo -e "${red}未知节点类型，或者接口不通，请检查${plain}"
+        yellow "未知节点类型，或者接口不通，请检查……"
         pause_press
         config_set
     fi
@@ -274,10 +312,14 @@ config_GetNodeInfo() {
         config_set
     fi
     echo
-    echo -e "从 ${green}${Api_Host}${plain} 获取 ${green}${Node_ID}${plain} 号 ${green}${Node_Type}${plain} 节点信息完成"
+    green "从 ${Api_Host} 获取 ${Node_ID} 号 ${Node_Type} 节点信息完成"
 }
 
 install_Caddy() {
+    # 安装caddy前先禁用其他网站程序
+    systemctl disable nginx; systemctl stop nginx
+    systemctl disable httpd; systemctl stop httpd
+
     $INS debian-keyring debian-archive-keyring apt-transport-https
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
@@ -288,11 +330,13 @@ install_Caddy() {
     github_user="lxhao61"
     github_repo="integrated-examples"
     github_file="caddy-linux-amd64.tar.gz"
-    # latest_version
-    # github_latest
-    # caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
+    
+    # GET latest_version
+    github_latest
+
+    caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
     # Specify version
-    caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/20230412/${github_file}"
+    # caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/20230412/${github_file}"
     # offical from caddyserver
     # caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
 
@@ -302,56 +346,411 @@ install_Caddy() {
     tar zxvf caddy.tar.gz caddy && rm -f caddy.tar.gz
     mv /usr/bin/caddy{,.bak} && mv -f caddy "/usr/bin/caddy" && chmod +x "/usr/bin/caddy"
     echo
-    echo -e "${green}Caddy2 安装完成${plain}"
+    green "Caddy2 安装完成"
 }
 install_web() {
     # 放个小游戏到/srv/www
+    web_www="${resource}/www.zip"
     wget --no-check-certificate -O www.zip $web_www
     unzip -o www.zip -d /srv/ && rm -f www.zip
 }
 config_caddy() {
     # keys：domain，port，tls，path/sni
-    # caddy监控443和80，通过path分流到后端，所以后端服务不能设置这两个端口
     caddy_config_path=$(echo ${caddy_config%/*})
     if [[ ! -d ${caddy_config_path} ]]; then
         mkdir -p ${caddy_config_path}
     fi
     # 修改caddy服务指定的配置文件
     cp -f ${caddy_config}{,_$(date +"%Y%m%d")}
-    # sed -i "s|^ExecStart.*|ExecStart=/usr/bin/caddy run --environ --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
-    # sed -i "s|^ExecReload.*|ExecReload=/usr/bin/caddy reload --force --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
-    # rm -f /etc/caddy/Caddyfile
+    sed -i "s|^ExecStart.*|ExecStart=/usr/bin/caddy run --environ --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
+    sed -i "s|^ExecReload.*|ExecReload=/usr/bin/caddy reload --force --config ${caddy_config}|" "/lib/systemd/system/caddy.service"
 
-    # Caddyfile格式
-    cat >${caddy_config} <<EOF
-${network_host}:${network_port} {
-    root * /srv/www
-    file_server
-    log {
-        output file /var/log/caddy/access.log
-    }
-    tls ${Cert_Email}
-    @${Node_Type}_${Node_ID} {
-        path ${network_path}
-        header Connection *Upgrade*
-        header Upgrade websocket
-    }
-    reverse_proxy @${Node_Type}_${Node_ID} localhost:${inbound_port}
-}
-EOF
+    # Caddyfile 格式
+    # rm -f /etc/caddy/Caddyfile
+#     cat >${caddy_config} <<EOF
+# ${network_host}:${network_port} {
+#     root * /srv/www
+#     file_server
+#     log {
+#         output file /var/log/caddy/access.log
+#     }
+#     tls ${Cert_Email}
+#     @${Node_Type}_${Node_ID} {
+#         path ${network_path}
+#         header Connection *Upgrade*
+#         header Upgrade websocket
+#     }
+#     reverse_proxy @${Node_Type}_${Node_ID} localhost:${server_port}
+# }
+# EOF
+
+    config_caddy_base && config_caddy_tls
     install_web
     systemctl daemon-reload && systemctl restart caddy
 }
 
-config_caddy_Trojan() {
-    echo "t"
+config_caddy_base() {
+    # json_name="caddy_base.json"
+    # wget -N --no-check-certificate -O ${json_name} ${config_resource}/caddy/caddy_base.json
+    # sed -i "s/PORT_HTTP1/${port_http1}/"  ${json_name}
+    # sed -i "s/PORT_HTTP2/${port_http2}/"  ${json_name}
+    # sed -i "s/TLS_PATH/${tls_path}/"  ${json_name}
+    # sed -i "s/TLS_MODULE/${tls_module}/"  ${json_name}
+    # sed -i "s/CERT_EMAIL/${Cert_Email}/"  ${json_name}
+
+    cat > ${caddy_config} <<EOF
+{
+  "admin": {
+    "disabled": true,
+    "config": {
+      "persist": false
+    }
+  },
+  "logging": {
+    "logs": {
+      "default": {
+        "writer": {
+          "output": "file",
+          "filename": "/var/log/caddy/default.log"
+        },
+        "encoder": {
+          "format": "console"
+        },
+        "level": "WARN"
+      }
+    }
+  },
+  "storage": {
+    "module": "file_system",
+    "root": "${tls_path}" //存放 TLS 证书的基本路径
+  },
+  "apps": {
+    "tls": {
+      // "certificates": {
+      //   "automate": [
+      //     "${network_host}"
+      //   ] //自动化管理 TLS 证书，域名添加到数组
+      // },
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "module": "${tls_module}", //acme 表示从 Let's Encrypt 申请 TLS 证书，zerossl 表示从 ZeroSSL 申请 TLS 证书。必须 acme 与 zerossl 二选一（固定 TLS 证书的目录便于引用）
+                "email": "${Cert_Email}" //创建账号后不需要变
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "http": {
+      "servers": {
+        "srvh1": {
+          "listen": [
+            ":80"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ] //HTTP 自动跳转 HTTPS，让网站看起来更真实
+                  },
+                  "status_code": 301
+                }
+              ]
+            }
+          ],
+          "protocols": [
+            "h1"
+          ] //仅开启 HTTP/1.1 server 支持
+        },
+        "srvh2c": {
+          "listen": [
+            "127.0.0.1:${port_http1}"
+          ], //H2C server 及 HTTP/1.1 server 本地监听端口
+          "listener_wrappers": [
+            {
+              "wrapper": "proxy_protocol" //开启 PROXY protocol 接收
+            }
+          ],
+          "protocols": [
+            "h1",
+            "h2c"
+          ], //开启 HTTP/1.1 server 与 H2C server 支持
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "set": {
+                      "Strict-Transport-Security": [
+                        "max-age=31536000; includeSubDomains; preload"
+                      ] //启用 HSTS
+                    }
+                  }
+                },
+                {
+                  "handler": "file_server",
+                  "root": "/srv/www" //修改为自己存放的 WEB 文件路径
+                }
+              ]
+            }
+          ]
+        },
+        "srvh2": {
+          "listen": [
+            "127.0.0.1:${port_http2}"
+          ], //HTTP/2 server 本地监听端口
+          "listener_wrappers": [
+            {
+              "wrapper": "proxy_protocol" //开启 PROXY protocol 接收
+            },
+            {
+              "wrapper": "tls" //HTTP/2 server 开启 PROXY protocol 接收必须配置
+            }
+          ],
+          "protocols": [
+            "h1",
+            "h2"
+          ], //开启 HTTPS server 与 HTTP/2 server 支持。（Caddy SNI 分流不支持 UDP 转发）
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "set": {
+                      "Strict-Transport-Security": [
+                        "max-age=31536000; includeSubDomains; preload"
+                      ] //启用 HSTS
+                    }
+                  }
+                },
+                {
+                  "handler": "file_server",
+                  "root": "/srv/www" //WEB 文件路径
+                }
+              ]
+            }
+          ],
+          "trusted_proxies": {
+            "source": "cloudflare", //cloudflare 为使用 cloudflare ips，由 caddy-cloudflare-ip 插件提供
+            "interval": "12h",
+            "timeout": "15s"
+          } //配置可信代理服务器的 IP 范围，以实现套 CDN 后服务端记录的客户端 IP 为真实来源 IP。若使用其它非 Cloudflare CDN，需调整 trusted_proxies 配置
+        }
+      }
+    },
+    "layer4": {
+      "servers": {
+        "sni": {
+          "listen": [
+            ":443"
+          ]
+          //sni->routes
+        }
+      }
+    }
+  }
 }
+EOF
+    sed -i "s/[^:]\/\/.*$//" ${caddy_config}
+    sed -i "s/^\/\/.*$//" ${caddy_config}
+    caddy_base=$(cat ${caddy_config})
+}
+
+config_caddy_tls() {
+    caddy_tls=$(cat << EOF
+{
+  "apps": {
+    "tls": {
+      "certificates": {
+        "automate": [
+          "${network_host}"
+        ]
+      }
+    }
+  }
+}
+EOF
+)
+    caddy_json=$(cat ${caddy_config})
+    automate_hosts=$(echo ${caddy_json} | jq .apps.tls.certificates.automate[])
+    contains ${automate_hosts} ${network_host}
+
+    if [ $? ]; then
+        green "${network_host} is in the certificates automate list, do nothing"
+    else
+        echo -e ${caddy_json} ${caddy_tls} | jq -s add > ${caddy_config}
+    fi
+}
+
+# caddy 前置分流
+config_caddy_sni() {
+    json_name="caddy_sni.json"
+    cat > ${json_name} <<EOF
+{
+  "apps": {
+    "layer4": {
+      "servers": {
+        "sni": {
+          //sni->listen
+          "routes": [
+            {
+              "match": [
+                {
+                  "tls": {
+                    "sni": [
+                      "${network_sni}"
+                    ] //对应 VLESS+Vision+TLS 的域名
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": [
+                        "127.0.0.1:${server_port}"
+                      ] //转给后端监听端口
+                    }
+                  ],
+                  "proxy_protocol": "v2" //启用 PROXY protocol 发送，v1 或 v2 表示 PROXY protocol 版本，建议采用 v2 版
+                }
+              ]
+            }
+          ] //match-sni routes
+        }
+      }
+    }
+  }
+}
+EOF
+    sed -i "s/[^:]\/\/.*$//" ${json_name}
+    sed -i "s/^\/\/.*$//" ${json_name}
+    caddy_sni=$(cat ${json_name})
+    rm -f ${json_name}
+}
+
 config_caddy_Vmess() {
-    echo "v"
+    json_name="caddy_Vmess.json"
+    cat > ${json_name} <<EOF
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "srvh2": {
+          //srvh2->listen
+          "routes": [
+            {
+              "match": [
+                {
+                  "path": [
+                    "${network_path}"
+                  ], //与 VMess+WebSocket 应用中 path 对应
+                  "header": {
+                    "Connection": [
+                      "*Upgrade*"
+                    ],
+                    "Upgrade": [
+                      "websocket"
+                    ]
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:${server_port}" //转发给本机 VMess+WebSocket 监听端口
+                    }
+                  ]
+                }
+              ]
+            }
+          ]//,tls_connection_policies
+        }
+      }
+    }
+  }
+}
+EOF
+    sed -i "s/[^:]\/\/.*$//" ${json_name}
+    sed -i "s/^\/\/.*$//" ${json_name}
+    caddy_Vmess=$(cat ${json_name})
+    rm -f ${json_name}
+    
+}
+
+config_caddy_Vless() {
+    json_name="caddy_Vless.json"
+    cat > ${json_name} <<EOF
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "srvh2": {
+          //srvh2->listen
+          "routes": [
+            {
+              "match": [
+                {
+                  "path": [
+                    "${network_path}"
+                  ] //与 VLESS+H2C 应用中 path 对应
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "transport": {
+                    "protocol": "http",
+                    "versions": [
+                      "h2c",
+                      "2"
+                    ]
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:${server_port}" //转发给本机 VLESS+H2C 监听端口
+                    }
+                  ]
+                }
+              ]
+            }
+          ]//,tls_connection_policies
+        }
+      }
+    }
+  }
+}
+EOF
+    sed -i "s/[^:]\/\/.*$//" ${json_name}
+    sed -i "s/^\/\/.*$//" ${json_name}
+    caddy_Vless=$(cat ${json_name})
+    rm -f ${json_name}
 
 }
+
+config_caddy_Trojan() {
+    cat >>${caddy_config} <<EOF
+
+EOF
+
+}
+
 config_caddy_Shadowsocks() {
-    echo "s"
+    cat >>${caddy_config} <<EOF
+
+EOF
 
 }
 
@@ -381,7 +780,7 @@ EOF
 }
 
 auto_Port(){
-    autoPort_url="https://github.com/cdnf/shell/raw/master/autoPort.sh"
+    autoPort_url="https://github.com/cdnf/shell/raw/master/proxy/autoPort.sh"
     wget -N --no-check-certificate -O autoPort.sh ${autoPort_url}
     bash autoPort.sh
 }
@@ -454,6 +853,65 @@ dns_update() {
 
 }
 
+srv_frame() {
+    # 规则组合：https://github.com/XTLS/Xray-examples
+    # 规则组合：https://github.com/lxhao61/integrated-examples
+    # echo
+    # echo -e "========================================================="
+    # echo -e "1. VLESS+TCP+XTLS「☆☆☆☆☆Xray前置回落到caddy时用，号称最强性能」"
+    # echo -e "2. VLESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
+    # echo -e "3. VMESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
+    # echo -e "4. VMESS+WS「☆☆☆中转配不好证书的时候直接用」"
+    # echo -e "5. VLESS+WS「☆☆☆中转配不好证书的时候直接用」"
+    # echo -e "6. VLESS+gRPC+TLS「☆Xray前置回落到caddy时用」"
+    # echo -e "7. Trojan+gRPC+TLS「☆☆延迟低，支持CDN」"
+    # echo -e "8. Trojan+XTLS「☆☆☆☆高性能小马」"
+    # echo -e "========================================================="
+    # 只保留4层转发，可以cdn，伪装也方便
+    echo -e "========================================================="
+    echo -e "1. Caddy:{默认80,443} --> XrayR"
+    echo -e "2. XrayR --> Caddy"
+    echo -e "本脚本默认使用Caddy，其他nginx，httpd等将会被禁用"
+    echo -e "========================================================="
+    read -p "请选择方案组合（默认 1）：" front_srv
+    [[ -z "${front_srv}" ]] && front_srv="1"
+
+    if [[ "$front_srv" == "1" ]]; then
+        # 由caddy管理证书
+        Cert_Mode="none"
+
+        # 未完待续
+        # if [[ "${Node_Type}" == "Trojan" ]]; then
+        #     config_caddy_Trojan
+        # fi
+        # if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
+        #     config_caddy_Vmess
+        # fi
+        # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
+        #     config_caddy_Shadowsocks
+        # fi
+
+    elif [[ "$front_srv" == "2" ]]; then
+        read -p "请选择证书申请模式：[1]none \t [2]file ：" Cert_Mode
+            case "${Cert_Mode}" in
+            1)
+                Cert_Mode="none"
+                ;;
+            2)
+                Cert_Mode="file"
+                ;;
+            *)
+                echo "请输入正确数字:"
+                ;;
+            esac
+    else
+        echo
+        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
+    fi
+
+}
+
+
 # 0: running, 1: not running, 2: not installed
 check_status() {
     if [[ ! -f /etc/systemd/system/XrayR.service ]]; then
@@ -479,7 +937,7 @@ github_latest() {
 
 install_XrayR() {
     echo
-    echo -e "${green}准备安装 XrayR${plain}"
+    bold "准备安装 XrayR"
     if [[ -e /usr/local/XrayR/ ]]; then
         rm -rf /usr/local/XrayR/
     fi
@@ -502,7 +960,7 @@ install_XrayR() {
     XrayR_url="https://github.com/${github_user}/${github_repo}/releases/download/${XrayR_version}/${github_file}"
     wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux-64.zip ${XrayR_url}
     if [[ $? -ne 0 ]]; then
-        echo -e "${red}下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件${plain}"
+        red "下载 XrayR ${XrayR_version} 失败，请确保此版本存在且服务器能够下载 Github 文件"
         exit 1
     fi
 
@@ -512,7 +970,7 @@ install_XrayR() {
     wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${XrayR_service}
     systemctl daemon-reload && systemctl stop XrayR
     systemctl enable XrayR
-    echo -e "${green}XrayR ${XrayR_version}${plain} 安装完成，已设置开机自启"
+    green "XrayR ${XrayR_version} 安装完成，已设置开机自启"
     mkdir -p /etc/XrayR/
     cp geoip.dat /etc/XrayR/
     cp geosite.dat /etc/XrayR/
@@ -545,11 +1003,11 @@ install_XrayR() {
         echo -e ""
         if [[ $? == 0 ]]; then
             echo
-            echo -e "${green}XrayR 重启成功${plain}"
+            green "XrayR 重启成功"
         else
             echo
-            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，${plain}"
-            echo -e "${red}则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/${plain}"
+            red "XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，"
+            red "则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/"
         fi
     fi
     # 安装管理工具
@@ -609,117 +1067,40 @@ config_set() {
 
     # 从面板获取节点关键信息
     config_GetNodeInfo
-    if [[ ${inbound_port} == "443" || ${inbound_port} == "80" ]]; then
-        echo "后端服务不可设置为 443 或 80，请到面板修改为其他端口"
+    # caddy监控443和80，通过path分流到后端，所以后端服务不能设置caddy 已用端口
+    contains "80 443 ${port_http1} ${port_http2}" "${server_port}" 
+    if [[ $? == 1 ]]; then
+        red "端口与 80 443 ${port_http1} ${port_http2} 有冲突，请到面板修改为其他端口"
         pause_press
         config_set
     fi
-    # 证书相关信息
-    config_Email
-    TLS_CertFile="${tls_path}/${network_host}.crt"
-    TLS_KeyFile="${tls_path}/${network_host}.key"
 
     echo
-    echo -e "\t面板类型：${green}V2bord${plain}"
-    echo -e "\t节点类型：${green}${Node_Type}${plain}"
-    echo -e "\t节点ID：${green}${Node_ID}${plain}"
-    echo -e "\t对外连接地址：${green}${network_host}${plain}"
-    echo -e "\t对外连接端口：${green}${network_port}${plain}"
-    echo -e "\t后端监听端口：${green}${inbound_port}${plain}"
-    echo -e "\t传输协议：${green}${network_protocol}${plain}"
-    echo -e "\t加密方式：${green}${network_security}${plain}"
+    green "\t面板类型：V2bord"
+    green "\t节点类型：${Node_Type}"
+    green "\t节点ID：${Node_ID}"
+    green "\t对外连接地址：${network_host}"
+    green "\t对外连接端口：${network_port}"
+    green "\t后端监听端口：${server_port}"
+    green "\t传输协议：${network_protocol}"
+    green "\t加密方式：${network_security}"
     if [[ "${Node_Type}" == "Trojan" ]]; then
-        echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
+        green "\t伪装域名「serverName」：${network_sni}"
     fi
     if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
-        echo -e "\t伪装域名「serverName」：${green}${network_sni}${plain}"
-        echo -e "\t分流路径「path」：${green}${network_path}${plain}"
+        green "\t伪装域名「serverName」：${network_sni}"
+        green "\t分流路径「path」：${network_path}"
     fi
     if [[ "${Node_Type}" == "Shadowsocks" ]]; then
-        echo -e "\t混淆域名「serverName」：${green}${network_sni}${plain}"
-        echo -e "\t混淆路径「path」：${green}${network_path}${plain}"
+        green "\t混淆域名「serverName」：${network_sni}"
+        green "\t混淆路径「path」：${network_path}"
     fi
     echo
     read -p "以上信息确认正确就回车继续，否则请输 N 重来：" Check_All
     if [[ ${Check_All} == "N" ]]; then
         config_set
     fi
-
-    # 规则组合：https://github.com/XTLS/Xray-examples
-    # 规则组合：https://github.com/lxhao61/integrated-examples
-    # echo
-    # echo -e "v2board暂不支持VLESS，先写好等面板支持"
-    # echo -e "========================================================="
-    # echo -e "1. VLESS+TCP+XTLS「☆☆☆☆☆Xray前置回落到caddy时用，号称最强性能」"
-    # echo -e "2. VLESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
-    # echo -e "3. VMESS+WS+TLS「☆☆☆☆带伪装，支持CDN」"
-    # echo -e "4. VMESS+WS「☆☆☆中转配不好证书的时候直接用」"
-    # echo -e "5. VLESS+WS「☆☆☆中转配不好证书的时候直接用」"
-    # echo -e "6. VLESS+gRPC+TLS「☆Xray前置回落到caddy时用」"
-    # echo -e "7. Trojan+gRPC+TLS「☆☆延迟低，支持CDN」"
-    # echo -e "8. Trojan+XTLS「☆☆☆☆高性能小马」"
-    # echo -e "========================================================="
-    # 只保留4层转发，可以cdn，伪装也方便
-    echo -e "========================================================="
-    echo -e "1. Caddy:{默认80,443} --> XrayR"
-    echo -e "2. XrayR"
-    echo -e "本脚本默认Caddy前置，要其他组合请后续自行修改配置"
-    echo -e "========================================================="
-    read -p "请选择方案组合（默认 1）：" rules_num
-    [ -z "${rules_num}" ] && rules_num="1"
-
-    if [[ "$rules_num" == "1" ]]; then
-        systemctl disable nginx; systemctl stop nginx
-        # 由caddy管理证书
-        Cert_Mode="none"
-
-        install_Caddy && config_caddy
-        # 未完待续
-        # if [[ "${Node_Type}" == "Trojan" ]]; then
-        #     config_caddy_Trojan
-        # fi
-        # if [[ "${Node_Type}" == "Vmess" || "${Node_Type}" == "V2ray" ]]; then
-        #     config_caddy_Vmess
-        # fi
-        # if [[ "${Node_Type}" == "Shadowsocks" ]]; then
-        #     config_caddy_Shadowsocks
-        # fi
-        systemctl restart caddy
-    elif [[ "$rules_num" == "2" ]]; then
-        systemctl disable caddy; systemctl stop caddy
-        read -p "请选择证书申请模式：[1]http \t [2]dns \t [3]none ：" Cert_Mode
-            case "${Cert_Mode}" in
-            1)
-                Cert_Mode="http"
-                ;;
-            2)
-                Cert_Mode="dns"
-                read -p "请选择DNS托管商：[1]dnspod \t [2]cloudflare" dns_Provider
-                    case "${dns_Provider}" in
-                    1)
-                        dns_Provider="dnspod"
-                        read -p "请输入「DNSPOD_API_KEY」" SECRET_KEY
-                        ;;
-                    2)
-                        dns_Provider="cloudflare"
-                        read -p "请输入「CF_DNS_API_TOKEN」" SECRET_KEY
-                        ;;
-                    *)
-                    echo -e "无法识别指令，请输入正确的数字"
-                    ;;
-                    esac
-               ;;
-            3)
-                Cert_Mode="none"
-                ;;
-            *)
-            echo -e "无法识别指令，请输入正确的数字"
-            ;;
-            esac
-    else
-        echo
-        echo "无法识别，请输入正确的数字，也不纠正了，装完自己改吧"
-    fi
+    config_TLS
 
     if [[ ${network_security} == "xtls" ]]; then
         Enable_XTLS="true"
@@ -744,6 +1125,9 @@ config_set() {
 
     # 偷懒自动解析域名，只支持cloudflare
     dns_update
+
+    # 证书由caddy接管，XrayR也可以使用caddy已申请的file
+    Cert_Mode="none"
 }
 
 # 菜单
@@ -751,7 +1135,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 4.2.4"
+    echo -e "	Version: 0.1.0"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
@@ -763,14 +1147,15 @@ menu() {
     echo
     read -ep "请输入数字选项: " menu_Num
 }
-while [ 1 ]; do
+while [[ 1 ]]; do
     menu
-    case "$menu_Num" in
+    case "${menu_Num}" in
     0)
         break
         ;;
     1)
-        install_XrayR && config_info
+        install_XrayR && config_info && srv_frame
+        install_Caddy && config_caddy
         ;;
     2)
         config_set
@@ -793,7 +1178,3 @@ while [ 1 ]; do
     esac
 done
 clear
-
-# TODO
-# 自动获取节点对外连接端口，并自动同步caddy配置
-# 服务端定期更换对外连接端口为随机值

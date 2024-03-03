@@ -1,0 +1,51 @@
+{
+  "apps": {
+    "layer4": {
+      "servers": {
+        "sni": {
+          //sni->listen
+          "routes": [
+            {
+              "match": [
+                {
+                  "tls": {
+                    "sni": [
+                      "${network_host}"
+                    ] //对应 VLESS+Vision+TLS 的域名，修改为自己的
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [
+                    {
+                      "dial": [
+                        "127.0.0.1:${server_port}"
+                      ] //转给后端监听端口
+                    }
+                  ],
+                  "proxy_protocol": "v2" //启用 PROXY protocol 发送，v1 或 v2 表示 PROXY protocol 版本，建议采用 v2 版
+                }
+              ]
+            }
+          ] //match-sni routes
+        }
+      }
+    }
+  }
+}
+// 备注：
+//1、申请免费 TLS 证书的域名不要超过五个，否则影响 TLS 证书的更新
+//2、若域名为 trojan.x.y，那么从 Let's Encrypt 申请的普通 TLS 证书在 ‘/home/tls/certificates/acme-v02.api.letsencrypt.org-directory/trojan.x.y’ 目录中。/home/tls 为存放 TLS 证书的基本路径，目录随域名变化
+//3、若域名为 trojan.x.y，那么从 ZeroSSL 申请的普通 TLS 证书在 ‘/home/tls/certificates/acme.zerossl.com-v2-dv90/trojan.x.y’ 目录中。/home/tls 为存放 TLS 证书的基本路径，目录随域名变化
+//4、本配置仅支持申请普通 TLS 证书，若要申请通配符 TLS 证书请参考 ‘Caddy(Other Configuration) （Caddy 的特殊应用配置方法。）’ 中对应介绍及对应配置示例
+//5、本示例使用 XTLS Vision 配置（vless.x.y）、非 AES 算法的密码套件配置（trojan.x.y）、套 CDN（vmess.x.y）、非 AES 算法的密码套件配置（naive.x.y）来避免被封
+//6、本示例使用不同域名来实现介绍中各应用，其办法如下：
+//1）、VLESS+Vision+TLS 仅使用 vless.x.y 域名
+//2）、Trojan+TCP+TLS 仅使用 trojan.x.y 域名
+//3）、VMess+WebSocket+TLS 仅使用 vmess.x.y 域名
+//4）、VLESS+H2C+TLS 仅使用 naive.x.y 域名
+//5）、Shadowsocks+gRPC+TLS 可随意使用 vmess.x.y 域名与 naive.x.y 域名
+//6）、NaiveProxy 仅使用 naive.x.y 域名（使用 HTTPS 协议）
+//7、本示例的 SNI 分流自带限定域名连接（包括禁止以 IP 方式访问网站）。
