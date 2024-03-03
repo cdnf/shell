@@ -96,18 +96,13 @@ pause_press() {
         char=$(get_char)
     fi
 }
-# list_include_item
+# 简单粗暴判断，无容错功能，故8443和443会认为有冲突
 # contains aList anItem
 # echo $? # 0： match, 1: failed
 contains () {
     aList=$1
     anItem=$2
     amsg=$(echo ${aList} | grep ${anItem})
-    if [[ ${amsg} ]]; then
-        return 0
-    else
-        return 1
-    fi
 }
 
 get_Swap() {
@@ -1040,7 +1035,7 @@ config_set() {
     config_GetNodeInfo
     # caddy监控443和80，通过path分流到后端，所以后端服务不能设置caddy 已用端口
     contains "80 443 ${port_http1} ${port_http2}" "${server_port}" 
-    if [[ $? == 1 ]]; then
+    if [[ $? == 0 ]]; then
         red "端口与 80 443 ${port_http1} ${port_http2} 有冲突，请到面板修改为其他端口"
         pause_press
         config_set
@@ -1117,7 +1112,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 0.1.2"
+    echo -e "	Version: 0.1.3"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
