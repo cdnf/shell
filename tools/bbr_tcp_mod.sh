@@ -7,7 +7,6 @@ export PATH
 #	Description: BBR+BBR魔改版+BBRplus+Lotserver
 #	Version: 1.3.2
 #	Author: 千影,cx9208
-#	Blog: https://www.94ish.me/
 #=================================================
 
 sh_ver="1.3.2"

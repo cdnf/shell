@@ -1,0 +1,160 @@
+{
+  "admin": {
+    "disabled": true,
+    "config": {
+      "persist": false
+    }
+  },
+  "logging": {
+    "logs": {
+      "default": {
+        "writer": {
+          "output": "file",
+          "filename": "/var/log/caddy/default.log"
+        },
+        "encoder": {
+          "format": "console"
+        },
+        "level": "WARN"
+      }
+    }
+  },
+  "storage": {
+    "module": "file_system",
+    "root": "TLS_PATH" //存放 TLS 证书的基本路径
+  },
+  "apps": {
+    "tls": {
+      // "certificates": {
+      //   "automate": [
+      //     "${network_host}"
+      //   ] //自动化管理 TLS 证书，域名添加到数组
+      // },
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "module": "TLS_MODULE", //acme 表示从 Let's Encrypt 申请 TLS 证书，zerossl 表示从 ZeroSSL 申请 TLS 证书。必须 acme 与 zerossl 二选一（固定 TLS 证书的目录便于引用）
+                "email": "CERT_EMAIL" //创建账号后不需要变
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "http": {
+      "servers": {
+        "srvh1": {
+          "listen": [
+            ":80"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "static_response",
+                  "headers": {
+                    "Location": [
+                      "https://{http.request.host}{http.request.uri}"
+                    ] //HTTP 自动跳转 HTTPS，让网站看起来更真实
+                  },
+                  "status_code": 301
+                }
+              ]
+            }
+          ],
+          "protocols": [
+            "h1"
+          ] //仅开启 HTTP/1.1 server 支持
+        },
+        "srvh2c": {
+          "listen": [
+            "127.0.0.1:PORT_HTTP1"
+          ], //H2C server 及 HTTP/1.1 server 本地监听端口
+          "listener_wrappers": [
+            {
+              "wrapper": "proxy_protocol" //开启 PROXY protocol 接收
+            }
+          ],
+          "protocols": [
+            "h1",
+            "h2c"
+          ], //开启 HTTP/1.1 server 与 H2C server 支持
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "set": {
+                      "Strict-Transport-Security": [
+                        "max-age=31536000; includeSubDomains; preload"
+                      ] //启用 HSTS
+                    }
+                  }
+                },
+                {
+                  "handler": "file_server",
+                  "root": "/srv/www" //修改为自己存放的 WEB 文件路径
+                }
+              ]
+            }
+          ]
+        },
+        "srvh2": {
+          "listen": [
+            "127.0.0.1:PORT_HTTP2"
+          ], //HTTP/2 server 本地监听端口
+          "listener_wrappers": [
+            {
+              "wrapper": "proxy_protocol" //开启 PROXY protocol 接收
+            },
+            {
+              "wrapper": "tls" //HTTP/2 server 开启 PROXY protocol 接收必须配置
+            }
+          ],
+          "protocols": [
+            "h1",
+            "h2"
+          ], //开启 HTTPS server 与 HTTP/2 server 支持。（Caddy SNI 分流不支持 UDP 转发）
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "set": {
+                      "Strict-Transport-Security": [
+                        "max-age=31536000; includeSubDomains; preload"
+                      ] //启用 HSTS
+                    }
+                  }
+                },
+                {
+                  "handler": "file_server",
+                  "root": "/srv/www" //修改为自己存放的 WEB 文件路径
+                }
+              ]
+            }
+          ],
+          "trusted_proxies": {
+            "source": "cloudflare", //cloudflare 为使用 cloudflare ips，由 caddy-cloudflare-ip 插件提供
+            "interval": "12h",
+            "timeout": "15s"
+          } //配置可信代理服务器的 IP 范围，以实现套 CDN 后服务端记录的客户端 IP 为真实来源 IP。若使用其它非 Cloudflare CDN，需调整 trusted_proxies 配置
+        }
+      }
+    },
+    "layer4": {
+      "servers": {
+        "sni": {
+          "listen": [
+            ":443"
+          ]
+          //sni->routes
+        }
+      }
+    }
+  }
+}
