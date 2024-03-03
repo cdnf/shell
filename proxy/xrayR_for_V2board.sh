@@ -305,6 +305,10 @@ config_GetNodeInfo() {
         pause_press
         config_set
     fi
+    if [[ -z ${network_sni} ]]; then
+       network_sni=${network_host}
+    fi
+    
     echo
     green "从 ${Api_Host} 获取 ${Node_ID} 号 ${Node_Type} 节点信息完成"
 }
@@ -1112,7 +1116,7 @@ menu() {
     echo
     echo -e "======================================"
     echo -e "	Author: 金三将军"
-    echo -e "	Version: 0.1.3"
+    echo -e "	Version: 0.1.4"
     echo -e "======================================"
     echo
     echo -e "\t1.安装XrayR"
