@@ -336,11 +336,11 @@ install_Caddy() {
   github_file="caddy-linux-amd64.tar.gz"
 
   # GET latest_version
-  github_latest
+  # github_latest
+  # caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
 
-  caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/${latest_version}/${github_file}"
-  # Specify version
-  # caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/20230412/${github_file}"
+  # Specify version：2.7.6
+  caddy_url="https://github.com/${github_user}/${github_repo}/releases/download/20231208/${github_file}"
   # offical from caddyserver
   # caddy_url="https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/caddy-dns/cloudflare&p=github.com/caddy-dns/dnspod&p=github.com/mholt/caddy-l4"
 
@@ -790,7 +790,7 @@ menu() {
   echo
   echo -e "======================================"
   echo -e "	Author: 金三将军"
-  echo -e "	Version: 0.2.0"
+  echo -e "	Version: 0.2.1"
   echo -e "======================================"
   echo
   echo -e "\t1.安装XrayR"
