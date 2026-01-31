@@ -29,14 +29,14 @@ if [[ -z $cmd ]]; then
     echo "只支持Debian/Ubuntu，垃圾脚本就是这样……"
     exit 1
 fi
-apt install -y curl wget cron jq net-tools
+apt install -y curl wget cron jq yq net-tools
 
 if [[ -z $(mysql -V) ]]; then
     apt install -y default-mysql-client
 fi
 
 #===========================================#
-# Version: 0.1.3
+# Version: 0.1.4
 # Author: 金三将军
 # Homepage：
 # ------------------------------------------#
@@ -115,7 +115,8 @@ new_Port() {
     do  
         random_Num
     done
-    green "Now, the new port is ${port_new}"
+    s_Time=$(date -R)
+    green "${s_Time}    Now, the new port is ${port_new}" >>~/new_Port.log
 }
 
 # 同步到前端caddy
@@ -187,8 +188,9 @@ sync_DB() {
 }
 EOF
 
-    db_table="v2_server_${Node_Type,,}"
-    SQL="UPDATE ${db_table} SET port = ${port_new} WHERE ${db_table}.id = ${Node_ID}"
+    # db_table="v2_server_${Node_Type,,}"
+    db_table="v2_server"
+    SQL="UPDATE ${db_table} SET port = ${port_new} WHERE ${db_table}.code = ${Node_ID} AND ${db_table}.type = '${Node_Type}';"
     mysql -h"${DB_Host}" -u"${DB_User}" -p"${DB_PWD}" -D"${DB_Name}" -B -e "$SQL"
     if [[ "$?" == 0 ]]; then
         green "new port: ${port_new} has updated to the panel"
