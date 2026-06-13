@@ -8,10 +8,8 @@ export LANGUAGE=en_US.UTF-8
 
 cur_dir=$(pwd)
 resource="https://github.com/cdnf/shell/raw/master/resource"
-config_XrayR="/etc/XrayR/config.yml"
-config_rulefile="/etc/XrayR/rulelist"
-config_dnsfile="/etc/XrayR/dns.json"
 caddy_config="/etc/caddy/Caddyfile"
+tls_module="acme"   #TLS证书机构: acme (Let's Encrypt) | zerossl (ZeroSSL)
 
 # fonts color
 red() {
@@ -34,13 +32,15 @@ bold() {
 [[ $EUID -ne 0 ]] && red "错误：必须使用root用户运行此脚本！\n" && exit 1
 
 # 安装基础依赖
-local_tool="wget curl git unzip gzip tar screen lrzsz socat jq cron dnsutils net-tools file ntpdate systemd-timesyncd"
+local_tool="wget curl git unzip gzip tar screen lrzsz socat sudo jq cron dnsutils net-tools file ntpdate systemd-timesyncd"
 if [[ -f /usr/bin/apt && -f /bin/systemctl ]]; then
   os="debian"
   cron_srv="cron"
   INS="apt -y install"
   apt -y update
   $INS ${local_tool}
+  wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
+  curl -L https://github.com/a8m/envsubst/releases/latest/download/envsubst-`uname -s`-`uname -m` -o /usr/bin/envsubst && chmod +x /usr/bin/envsubst
 else
   red "未检测到系统版本，本垃圾程序只支持Debian！如果检测有误，请联系作者\n" && exit 1
 fi
@@ -60,14 +60,11 @@ systemctl restart rsyslog
 # sed -i '$a\0 * * * * root ntpdate cn.pool.ntp.org && hwclock -w >> /dev/null 2>&1' /etc/crontab
 # systemctl restart ${cron_srv}
 
-# 添加交换分区
-get_Swap
-
-# 启用 ll 命令方便后续使用
-# sed -i "s|^# export LS_OPTIONS|export LS_OPTIONS|" ~/.bashrc
-# sed -i "s|^# eval |eval |" ~/.bashrc
-# sed -i "s|^# alias l|alias l|g" ~/.bashrc
-# source ~/.bashrc
+if [[ -f /usr/sbin/firewalld ]]; then
+  echo "正在关闭防火墙！"
+  systemctl disable firewalld
+  systemctl stop firewalld
+fi
 
 # 实现按任意键继续
 get_char() {
@@ -123,119 +120,68 @@ get_Swap() {
   fi
   swapon --show
 }
-# Writing json
-# 配置文件说明：https://crackair.gitbook.io/xrayr-project/xrayr-pei-zhi-wen-jian-shuo-ming/config
-config_init() {
-  cat >${config_XrayR} <<EOF
-Log:
-  Level: error # Log level: none, error, warning, info, debug 
-  AccessPath: # /etc/XrayR/access.Log
-  ErrorPath: # /etc/XrayR/error.log
-DnsConfigPath: # /etc/XrayR/dns.json # Path to dns config, check https://xtls.github.io/config/dns.html for help
-RouteConfigPath: # /etc/XrayR/route.json # Path to route config, check https://xtls.github.io/config/routing.html for help
-InboundConfigPath: # /etc/XrayR/custom_inbound.json # Path to custom inbound config, check https://xtls.github.io/config/inbound.html for help
-OutboundConfigPath: # /etc/XrayR/custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/outbound.html for help
-ConnectionConfig:
-  Handshake: 4 # Handshake time limit, Second
-  ConnIdle: 30 # Connection idle time limit, Second
-  UplinkOnly: 2 # Time limit when the connection downstream is closed, Second
-  DownlinkOnly: 4 # Time limit when the connection is closed after the uplink is closed, Second
-  BufferSize: 64 # The internal cache size of each connection, kB
-Nodes:
-EOF
-  green "基础配置已写入 ${config_XrayR}"
-}
-config_nodes() {
-  if [[ ${Node_Type} == "Vmess" || ${Node_Type} == "V2ray" ]]; then
-    XNode_Type="V2ray"
+
+# 添加交换分区
+get_Swap
+
+config_XrayR() {
+  config_XrayR="/etc/XrayR/config.yml"
+  Nodes_idx=$(yq '.Nodes | length' ${config_XrayR})
+  if [[ ${Nodes_idx} == 0 ]]; then
+    yellow "当前不存在节点配置，重新部署示例配置"
+    config_raw="https://github.com/XrayR-project/XrayR-release/raw/master/release/config/config.yml.example"
+    wget -N --no-check-certificate -O ${config_XrayR} ${config_raw}
+  fi
+
+  yq -i '
+    .Log = "error"
+    .DnsConfigPath = "/etc/XrayR/dns.json"
+    .RouteConfigPath = "/etc/XrayR/route.json"
+    .Nodes[].PanelType = "NewV2board"
+  ' ${config_XrayR}
+
+  Api_Host=${Api_Host} Api_Key=${Api_Key} Node_ID=${Node_ID} Node_Type=${Node_Type} \
+  yq -i '
+    .Nodes[${Nodes_idx}].ApiConfig.ApiHost = env(Api_Host)
+    .Nodes[${Nodes_idx}].ApiConfig.ApiKey = env(Api_Key)
+    .Nodes[${Nodes_idx}].ApiConfig.NodeID = env(Node_ID)
+    .Nodes[${Nodes_idx}].ApiConfig.NodeType = env(Node_Type)
+  ' ${config_XrayR}
+
+  CertMode=${Cert_Mode} CertDomain=${network_host} Email=${Email} \
+  yq -i '
+    .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.CertMode = env(CertMode)
+    .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.CertDomain = env(CertDomain)
+    .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.Email = env(Email)
+  ' ${config_XrayR}
+
+  if [[ ${Cert_Mode} == "http" ]]; then
+      green "通过 http 自申请证书"
+      yq -i '
+      
+      '
+  elif [[ ${Cert_Mode} == "dns" ]]; then
+      green "通过 DNS 申请证书"
+      Provider=${Provider} \
+      yq -i '
+        .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.CertMode = env(CertMode)
+      ' ${config_XrayR}
+
+  elif [[ ${Cert_Mode} == "file" ]]; then
+      green "指定证书文件路径"
+      CertFile=${} KeyFile=${} \
+      yq -i '
+        .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.CertFile = env(CertFile)
+        .Nodes[${Nodes_idx}].ControllerConfig.CertConfig.KeyFile = env(KeyFile)      
+      '
   else
-    XNode_Type=${Node_Type}
-  fi
-
-  if [[ ! -f ${config_XrayR} ]]; then
-    echo "配置文件不存在，请确认已安装XrayR"
-    exit 1
-  else
-    cat >>${config_XrayR} <<EOF
-    -
-        PanelType: "NewV2board" # Panel type: SSpanel, V2board, NewV2board, PMpanel, Proxypanel, V2RaySocks
-        ApiConfig:
-            ApiHost: "${Api_Host}"
-            ApiKey: "${Api_Key}"
-            NodeID: "${Node_ID}"
-            NodeType: "${XNode_Type}" # Node type: V2ray, Trojan, Shadowsocks, Shadowsocks-Plugin
-            Timeout: 30 # Timeout for the api request
-            EnableVless: ${Enable_Vless} # Enable Vless for V2ray Type
-            EnableXTLS: ${Enable_XTLS} # Enable XTLS for V2ray and Trojan
-            SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
-            DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
-            RuleListPath: # /etc/XrayR/rulelist Path to local rulelist file
-        ControllerConfig:
-            ListenIP: 0.0.0.0 # IP address you want to listen
-            SendIP: 0.0.0.0 # IP address you want to send pacakage
-            UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
-            EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
-            DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
-            DisableUploadTraffic: false # Disable Upload Traffic to the panel
-            DisableGetRule: false # Disable Get Rule from the panel
-            DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks
-            DisableSniffing: false # Disable domain sniffing 
-            EnableProxyProtocol: ${Enable_ProxyProtocol} # Only works for WebSocket and TCP
-            AutoSpeedLimitConfig:
-                Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
-                WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.
-                LimitSpeed: 0 # The speedlimit of a limited user (unit: mbps)
-                LimitDuration: 0 # How many minutes will the limiting last (unit: minute)
-            GlobalDeviceLimitConfig:
-                Enable: false # Enable the global device limit of a user
-                RedisAddr: 127.0.0.1:6379 # The redis server address
-                RedisPassword: ${Redis_Password} # Redis password
-                RedisDB: 0 # Redis DB
-                Timeout: 5 # Timeout for redis request
-                Expiry: 60 # Expiry time (second)
-            EnableFallback: ${Enable_Fallback} # Only support for Trojan and Vless
-            FallBackConfigs: # Support multiple fallbacks
-                -
-                    SNI: # TLS SNI(Server Name Indication), Empty for any
-                    Alpn: # Alpn, Empty for any
-                    Path: # HTTP PATH, Empty for any
-                    Dest: "80" # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
-                    ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
-EOF
-    green "节点配置已写入 ${config_XrayR}"
-  fi
-}
-config_Cert() {
-  cat >>${config_XrayR} <<EOF
-            CertConfig:
-                RejectUnknownSni: false # Reject unknown SNI
-                CertMode: "${Cert_Mode}" # Option about how to get certificate: none, file, http, tls, dns. Choose "none" will forcedly disable the tls config.
-                CertDomain: "${network_host}" # Domain to cert
-                CertFile: "${TLS_CertFile}" # Provided if the CertMode is file
-                KeyFile: "${TLS_KeyFile}" # http default in /etc/XrayR/cert/certificates/
-                Email: "${Cert_Email}"
-EOF
-
-  if [[ ${dns_Provider} == "dnspod" ]]; then
-    config_Provider_dnspod
-  elif [[ ${dns_Provider} == "cloudflare" ]]; then
-    config_Provider_cloudflare
+      yellow "默认不需要处理证书"
+      yq -i '
+      
+      '
   fi
 }
 
-config_XrayR_dns() {
-  cat >${config_dnsfile} <<EOF
-{
-    "servers": [
-        "1.1.1.1",
-        "1.2.4.8",
-        "8.8.8.8",
-        "localhost"
-    ],
-    "tag": "dns_inbound"
-}
-EOF
-}
 # 生成邮箱账号
 config_Email() {
   # local Cert_Email_Account=$(((RANDOM << 9)))
@@ -243,9 +189,8 @@ config_Email() {
   # 默认为二级子域名，${Domain_Srv#*\.} 取域名中第一个”.“右侧到结尾字符串
   Cert_Email=admin@${network_host#*\.}
 }
-# 申请TLS证书
+# 使用caddy申请的证书相关信息
 config_TLS() {
-  # 使用caddy申请的证书相关信息
   config_Email
 
   if [[ "${tls_module}" == "acme" ]]; then
@@ -255,7 +200,6 @@ config_TLS() {
   fi
   TLS_CertFile="${tls_path}/${tls_module_path}/${network_host}/${network_host}.crt"
   TLS_KeyFile="${tls_path}/${tls_module_path}/${network_host}/${network_host}.key"
-
 }
 
 config_GetNodeInfo() {
@@ -317,11 +261,15 @@ config_GetNodeInfo() {
 }
 
 install_Caddy() {
-  # 安装caddy前先禁用其他网站程序
-  systemctl stop nginx && systemctl disable nginx
-  systemctl stop httpd && systemctl disable httpd
-  systemctl stop apache2 && systemctl disable apache2
-
+  # 安装caddy前先禁用其他 web 程序
+  http_port=$(netstat -ntpl | grep ":80")
+  http_srv=${http_port##*/}
+  if [[ -n ${http_srv} ]]; then
+    systemctl stop ${http_srv} && systemctl disable ${http_srv}
+  else
+    green "无 web 程序占用，可直接安装 caddy"
+  fi
+  
   $INS debian-keyring debian-archive-keyring apt-transport-https
   rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
@@ -576,7 +524,7 @@ srv_frame() {
 }
 
 # 0: running, 1: not running, 2: not installed
-check_status() {
+XrayR_status() {
   if [[ ! -f /etc/systemd/system/XrayR.service ]]; then
     return 2
   fi
@@ -598,6 +546,14 @@ github_latest() {
   fi
 }
 
+XrayR_tool() {
+  echo
+  if [[ ! -f usr/bin/XrayR ]]; then
+    curl -o /usr/bin/XrayR -Ls https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.sh
+    chmod +x /usr/bin/XrayR
+  fi
+}
+
 install_XrayR() {
   echo
   bold "准备安装 XrayR"
@@ -608,7 +564,7 @@ install_XrayR() {
   mkdir -p /usr/local/XrayR/
   cd /usr/local/XrayR/
 
-  github_user="XrayR-project"
+  github_user="wyx2685" # wyx2685, XrayR-projec
   github_repo="XrayR"
   github_file="XrayR-linux-64.zip"
   # latest_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -629,17 +585,28 @@ install_XrayR() {
 
   unzip XrayR-linux-64.zip && rm -f XrayR-linux-64.zip
   chmod +x XrayR
+  mkdir -p /etc/XrayR/
   XrayR_service="https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.service"
   wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${XrayR_service}
   systemctl daemon-reload && systemctl stop XrayR
   systemctl enable XrayR
   green "XrayR ${XrayR_version} 安装完成，已设置开机自启"
-  mkdir -p /etc/XrayR/
+  
   cp geoip.dat /etc/XrayR/
   cp geosite.dat /etc/XrayR/
 
   if [[ ! -f /etc/XrayR/dns.json ]]; then
-    config_XrayR_dns
+    cat >/etc/XrayR/dns.json <<EOF
+{
+    "servers": [
+        "1.1.1.1",
+        "1.2.4.8",
+        "8.8.8.8",
+        "localhost"
+    ],
+    "tag": "dns_inbound"
+}
+EOF
   fi
   if [[ ! -f /etc/XrayR/route.json ]]; then
     cp route.json /etc/XrayR/
@@ -653,16 +620,14 @@ install_XrayR() {
   # if [[ ! -f /etc/XrayR/rulelist ]]; then
   #     cp rulelist /etc/XrayR/
   # fi
-  if [[ ! -f ${config_XrayR} ]]; then
-    config_set && srv_frame
-    config_init && config_nodes
-    config_Cert
+  if [[ ! -f /etc/XrayR/config.yml ]]; then
+    cp config.yml /etc/XrayR/
     echo
-    echo -e "全新安装完成，更多内容请见：https://crackair.gitbook.io/xrayr-project/"
+    echo -e "全新安装完成，更多内容请见：https://xrayr-project.github.io/XrayR-doc/"
   else
     systemctl start XrayR
     sleep 2
-    check_status
+    XrayR_status
     echo -e ""
     if [[ $? == 0 ]]; then
       echo
@@ -670,26 +635,12 @@ install_XrayR() {
     else
       echo
       red "XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，"
-      red "则可能更改了配置格式，请前往 wiki 查看：https://crackair.gitbook.io/xrayr-project/"
+      red "则可能更改了配置格式，请查看文档：https://xrayr-project.github.io/XrayR-doc/"
     fi
   fi
   # 安装管理工具
   XrayR_tool
-
-  if [[ -f /usr/sbin/firewalld ]]; then
-    echo "正在关闭防火墙！"
-    systemctl disable firewalld
-    systemctl stop firewalld
-  fi
   pause_press
-}
-
-XrayR_tool() {
-  echo
-  if [[ ! -f usr/bin/XrayR ]]; then
-    curl -o /usr/bin/XrayR -Ls https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.sh
-    chmod +x /usr/bin/XrayR
-  fi
 }
 
 # Pre-installation settings
@@ -734,7 +685,7 @@ config_set() {
   fi
 
   echo
-  green "\t面板类型：V2bord"
+  green "\t面板类型：Xboard | V2bord"
   green "\t节点类型：${Node_Type}"
   green "\t节点ID：${Node_ID}"
   green "\t对外连接地址：${network_host}"
@@ -790,7 +741,7 @@ menu() {
   echo
   echo -e "======================================"
   echo -e "	Author: 金三将军"
-  echo -e "	Version: 0.2.1"
+  echo -e "	Version: 0.3.0"
   echo -e "======================================"
   echo
   echo -e "\t1.安装XrayR"
@@ -808,7 +759,8 @@ while [[ 1 ]]; do
     break
     ;;
   1)
-    install_XrayR
+    config_set && srv_frame
+    install_XrayR && config_XrayR
     config_info && install_Caddy && config_caddy_Node_Type
     green "安装完成，正在尝试重启服务..."
     systemctl restart caddy
@@ -816,7 +768,7 @@ while [[ 1 ]]; do
     ;;
   2)
     config_set
-    config_nodes && config_Cert
+    config_XrayR
     XrayR restart && XrayR log
     ;;
   3)
